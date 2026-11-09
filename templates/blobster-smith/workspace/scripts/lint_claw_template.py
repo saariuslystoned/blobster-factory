@@ -399,11 +399,9 @@ def _parse_cron_field(
         if dow_modifiers:
             if "#" in seg:
                 nth_parts = seg.split("#")
-                if len(nth_parts) != 2 or not re.fullmatch(r"[1-5]", nth_parts[1]):
+                if len(nth_parts) != 2 or not re.fullmatch(r"[1-5Ll]", nth_parts[1]):
                     return None
                 seg = nth_parts[0]
-            elif seg.upper().endswith("L"):
-                seg = seg[:-1]
             if not seg:
                 return None
 
@@ -570,12 +568,22 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
     claw_path = root / "CLAW.md"
     profile_path = root / "profiles" / "openclaw.yml"
 
+    def early_failure() -> dict[str, Any]:
+        return {
+            "template": tdir.name,
+            "root": str(root),
+            "ok": False,
+            "selectedFileCount": 0,
+            "excludedPaths": [],
+            "diagnostics": diagnostics,
+        }
+
     if not pkg_path.is_file():
         diagnostics.append(_diag("missing_package_json", "package.json", "Missing package.json"))
-        return {"template": tdir.name, "root": str(root), "ok": False, "excludedPaths": [], "diagnostics": diagnostics}
+        return early_failure()
     if not claw_path.is_file():
         diagnostics.append(_diag("missing_claw_md", "CLAW.md", "Missing CLAW.md"))
-        return {"template": tdir.name, "root": str(root), "ok": False, "excludedPaths": [], "diagnostics": diagnostics}
+        return early_failure()
 
     # 1. package.json checks
     try:
@@ -585,7 +593,7 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
         pkg = json.loads(pkg_bytes.decode("utf-8"))
     except Exception as exc:
         diagnostics.append(_diag("invalid_package_json", "package.json", f"Invalid UTF-8 JSON: {exc}"))
-        return {"template": tdir.name, "root": str(root), "ok": False, "excludedPaths": [], "diagnostics": diagnostics}
+        return early_failure()
 
     if not isinstance(pkg, dict):
         diagnostics.append(_diag("invalid_package_json", "package.json", "package.json must be a JSON object"))
@@ -631,21 +639,21 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
         claw_text = claw_bytes.decode("utf-8")
     except Exception as exc:
         diagnostics.append(_diag("invalid_claw_utf8", "CLAW.md", f"CLAW.md must be valid UTF-8: {exc}"))
-        return {"template": tdir.name, "root": str(root), "ok": False, "excludedPaths": [], "diagnostics": diagnostics}
+        return early_failure()
 
     m = re.match(r"^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$", claw_text)
     if not m:
         diagnostics.append(
             _diag("missing_template_frontmatter", "CLAW.md", "CLAW.md must start with --- YAML frontmatter ---")
         )
-        return {"template": tdir.name, "root": str(root), "ok": False, "excludedPaths": [], "diagnostics": diagnostics}
+        return early_failure()
 
     fm_str, body_str = m.group(1), (m.group(2) or "").strip()
     try:
         manifest = parse_simple_yaml(fm_str)
     except Exception as exc:
         diagnostics.append(_diag("invalid_manifest_yaml", "CLAW.md", f"YAML parse failure: {exc}"))
-        return {"template": tdir.name, "root": str(root), "ok": False, "excludedPaths": [], "diagnostics": diagnostics}
+        return early_failure()
 
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 1:
         diagnostics.append(_diag("invalid_schema_version", "CLAW.md.schemaVersion", "CLAW.md schemaVersion must be 1"))
@@ -1225,7 +1233,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for r in results:
             status = "PASS" if r["ok"] else "FAIL"
-            print(f"[{status}] {r['template']} ({r['selectedFileCount']} selected files)")
+            print(f"[{status}] {r['template']} ({r.get('selectedFileCount', 0)} selected files)")
             for d in r["diagnostics"]:
                 print(f"  - [{d['code']}] {d['path']}: {d['message']}")
 

@@ -164,10 +164,10 @@ def verify_compiler_and_linter_invariants() -> list[str]:
     if ring_eo.getpixel((128, 128))[3] != 0 or ring_eo.getpixel((90, 128))[3] != 255:
         errors.append("rasterize_blobster_svg failed compound evenodd ring hole invariant")
 
-    for valid_expr in ("0 9 * * FRI-SUN", "0 9 * * MON-SUN/2", "0 9 * * SUN-SUN"):
+    for valid_expr in ("0 9 * * FRI-SUN", "0 9 * * MON-SUN/2", "0 9 * * SUN-SUN", "0 9 * * FRI#L"):
         if not is_valid_5_field_cron(valid_expr):
             errors.append(f"is_valid_5_field_cron falsely rejected valid schedule: {valid_expr}")
-    for invalid_expr in ("0 9 * * 5-0", "0 9 * * */8", "5/15 * * * *", "0 0 31 2 *"):
+    for invalid_expr in ("0 9 * * 5-0", "0 9 * * */8", "5/15 * * * *", "0 0 31 2 *", "0 9 * * FRIL", "0 9 * * 5L"):
         if is_valid_5_field_cron(invalid_expr):
             errors.append(f"is_valid_5_field_cron accepted invalid schedule: {invalid_expr}")
     return errors
