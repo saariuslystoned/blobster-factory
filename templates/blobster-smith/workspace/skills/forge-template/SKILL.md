@@ -71,8 +71,7 @@ templates/<agent-id>/
     │   ├── blobster-design.json
     │   ├── blobster.svg
     │   ├── hero-512.png
-    │   ├── blobster-idle.gif
-    │   ├── blobster-wave.gif
+    │   ├── sprite-2x2.png    # Single-frame 2x2 RGBA sheet (hydrates blobster-{idle,wave}.gif via `gifs` cmd)
     │   └── cutout-256.png
     └── skills/
         └── <skill-name>/

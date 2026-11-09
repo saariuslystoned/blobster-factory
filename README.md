@@ -29,7 +29,7 @@ An open-source workshop, deterministic asset compiler, template linter, and star
 
 Every OpenClaw agent needs two halves that fit together cleanly:
 1. **The Brain (`Blobster Smith`)** — A solo-install-ready, schema-validated `CLAW.md` manifest, bounded `profiles/openclaw.yml` tool allowlists, `AGENTS.md` / `SOUL.md` / `TOOLS.md` / `HEARTBEAT.md` bootstrap files, skills, quiet-on-clean 5-field cron routines, draft-first human gates, and zero-secret linting.
-2. **The Shell (`Blobster Sculptor / Molt`)** — A character identity that reads unmistakably at `24×24` pixels in any OpenClaw sidebar (`avatars/blobster.svg`) **and** comes alive as a 3D soft-touch vinyl collectible with `#FF00FF` chroma-keyed transparent looping animations (`avatars/blobster-idle.gif`, `avatars/blobster-wave.gif`, `avatars/hero-512.png`), verified by an automated dark/light QA contact sheet.
+2. **The Shell (`Blobster Sculptor / Molt`)** — A character identity that reads unmistakably at `24×24` pixels in any OpenClaw sidebar (`avatars/blobster.svg`) **and** comes alive as a 3D soft-touch vinyl collectible (`avatars/hero-512.png`, single-frame `avatars/sprite-2x2.png`, and `#FF00FF` chroma-keyed transparent looping `blobster-idle.gif` & `blobster-wave.gif`), verified by an automated dark/light QA contact sheet.
 
 ---
 
@@ -49,7 +49,7 @@ Every OpenClaw agent needs two halves that fit together cleanly:
   <tbody>
     <tr>
       <td align="center">
-        <img src="templates/blobster-smith/workspace/avatars/blobster-idle.gif" width="112" alt="Blobster Smith Animated Idle GIF">
+        <img src="https://github.com/saariuslystoned/blobster-factory/releases/download/v0.1.0-assets/blobster-smith-idle.gif" width="112" alt="Blobster Smith Animated Idle GIF">
       </td>
       <td align="center">
         <img src="templates/blobster-smith/workspace/avatars/blobster.svg" width="72" alt="Blobster Smith 24px Layered OpenClaw SVG">
@@ -65,7 +65,7 @@ Every OpenClaw agent needs two halves that fit together cleanly:
     </tr>
     <tr>
       <td align="center">
-        <img src="templates/blobster-sculptor/workspace/avatars/blobster-idle.gif" width="112" alt="Blobster Sculptor (Molt) Animated Idle GIF">
+        <img src="https://github.com/saariuslystoned/blobster-factory/releases/download/v0.1.0-assets/blobster-sculptor-idle.gif" width="112" alt="Blobster Sculptor (Molt) Animated Idle GIF">
       </td>
       <td align="center">
         <img src="templates/blobster-sculptor/workspace/avatars/blobster.svg" width="72" alt="Blobster Sculptor 24px Layered OpenClaw SVG">
@@ -90,7 +90,7 @@ Every character built in the workshop follows a structured two-tier visual pipel
 
 | Tier | Target Use Case | Generated Artifacts | Budget & QA Gates |
 | --- | --- | --- | --- |
-| **Tier 1 · Fast Pack** *(Default)* | Every OpenClaw Agent Template & ClawHub listing | 1. `avatars/blobster-design.json` + `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"`)<br>2. `avatars/hero-512.png` (`512×512` 3D studio vinyl render)<br>3. `avatars/blobster-idle.gif` & `avatars/blobster-wave.gif` (sliced from a single `2×2` `#FF00FF` chroma-key sheet)<br>4. `avatars/cutout-256.png` + external `qa-contact-sheet.png` | Fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes at `(45,32)` & `(75,32)`), empty `back` layer, `<= 24` custom vector shapes, `0` border-clip px, `<= 1.5%` `#FF00FF` spill, `< 2 MiB` per file |
+| **Tier 1 · Fast Pack** *(Default)* | Every OpenClaw Agent Template & ClawHub listing | 1. `avatars/blobster-design.json` + `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"`)<br>2. `avatars/hero-512.png` (`512×512` 3D studio vinyl render)<br>3. `avatars/sprite-2x2.png` (`512×512` single-frame despilled `2×2` sheet) + `avatars/cutout-256.png`<br>4. Hydrated `blobster-idle.gif` & `blobster-wave.gif` (`compile_blobster_pack.py gifs`) + external `qa-contact-sheet.png` | Fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes at `(45,32)` & `(75,32)`), empty `back` layer, `<= 24` custom vector shapes, `0` border-clip px, `<= 1.5%` `#FF00FF` spill, `< 2 MiB` per file |
 | **Tier 2 · Full Pet Rig** *(Optional `--tier2`)* | Desktop / Sidebar interactive pet hosts | 3-sheet `4×4` `#FF00FF` animation pack (`16` states, `73` frames) compiled into a `1536×2288` RGBA `sprite.png` + `manifest.json` (`sprite_version: 2`) | `256×286` per cell (`6×8` grid) + turnaround & expression sheets |
 
 ---
@@ -113,7 +113,11 @@ python3 scripts/compile_blobster_pack.py tier1 \
   --hero <work-dir>/hero.png \
   --sheet <work-dir>/chromakey-2x2.png \
   --out-dir templates/<agent-id>/workspace/avatars \
+  --omit-gifs \
   --qa-out <proof-dir>/<agent-id>-qa-contact-sheet.png
+
+# Materialize blobster-idle.gif & blobster-wave.gif into dist/avatars/<agent-id>/:
+python3 scripts/compile_blobster_pack.py gifs --all-templates
 ```
 
 ---

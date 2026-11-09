@@ -12,7 +12,7 @@ Open-source workshop for designing, compiling, linting, and verifying **OpenClaw
 | Template | ID | Archetype | Responsibility |
 | --- | --- | --- | --- |
 | **Blobster Smith** | `blobster-smith` | `C1 · Anvil Forgemaster` | Forges complete, solo-install-ready OpenClaw Agent Templates across 3 modes (**Idea**, **Past Session**, **API/CLI** with agent-native CLI design) and enforces `lint_claw_template.py` trust & secret gates. |
-| **Blobster Sculptor (Molt)** | `blobster-sculptor` | `C5 · Blueprint Toymaker & Painter` | Crafts the two-tier visual pack using the **Generate-vs-Surgical-Edit** prompt rubric: `24px`-legible layered OpenClaw SVG (`avatars/blobster.svg`), `512×512` 3D vinyl hero (`avatars/hero-512.png`), `#FF00FF` chroma-keyed looping GIFs (`avatars/blobster-idle.gif`, `avatars/blobster-wave.gif`), and dark/light `qa-contact-sheet.png` verification. |
+| **Blobster Sculptor (Molt)** | `blobster-sculptor` | `C5 · Blueprint Toymaker & Painter` | Crafts the two-tier visual pack using the **Generate-vs-Surgical-Edit** prompt rubric: `24px`-legible layered OpenClaw SVG (`avatars/blobster.svg`), `512×512` 3D vinyl hero (`avatars/hero-512.png`), single-frame `avatars/sprite-2x2.png` + `#FF00FF` chroma-keyed looping GIF hydration (`blobster-idle.gif`, `blobster-wave.gif`), and dark/light `qa-contact-sheet.png` verification. |
 
 ## Commands
 
@@ -24,7 +24,11 @@ python3 scripts/compile_blobster_pack.py tier1 \
   --hero <work-dir>/hero.png \
   --sheet <work-dir>/chromakey-2x2.png \
   --out-dir templates/<agent-id>/workspace/avatars \
+  --omit-gifs \
   --qa-out <proof-dir>/<agent-id>-qa-contact-sheet.png
+
+# Hydrate blobster-idle.gif & blobster-wave.gif into dist/avatars/ from sprite-2x2.png:
+python3 scripts/compile_blobster_pack.py gifs --all-templates
 ```
 
 Audit an existing `avatars/` directory and render its QA sheet without recompiling assets:

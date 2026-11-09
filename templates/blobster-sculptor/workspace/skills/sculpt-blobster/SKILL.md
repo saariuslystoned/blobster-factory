@@ -41,14 +41,18 @@ When an existing hero or `2×2` sheet is 90% right and needs a targeted fix:
 ## Tier 1: Compile & Run Deterministic Visual QA
 
 1. **Author `templates/<id>/workspace/avatars/blobster-design.json`** (`version: 1`, `palette` 6-digit hex colors, 5 allowed SVG fragment layers).
-2. **Compile the Pack + Emit QA Contact Sheet** (keep `--qa-out` outside `templates/<id>/workspace/avatars/` so `CLAW.md` maintains zero unlisted files):
+2. **Compile the Pack + Emit QA Contact Sheet** (use `--omit-gifs` for Git-tracked `templates/<id>/workspace/avatars/` so Git tracks single-frame `sprite-2x2.png` + `cutout-256.png`, and keep `--qa-out` outside `templates/<id>/workspace/avatars/` so `CLAW.md` maintains zero unlisted files):
    ```bash
    python3 scripts/compile_blobster_pack.py tier1 \
      --design templates/<id>/workspace/avatars/blobster-design.json \
      --hero <work-dir>/hero.png \
      --sheet <work-dir>/chromakey-2x2.png \
      --out-dir templates/<id>/workspace/avatars \
+     --omit-gifs \
      --qa-out <proof-dir>/<id>-qa-contact-sheet.png
+
+   # Hydrate blobster-idle.gif & blobster-wave.gif from sprite-2x2.png into dist/avatars/<id>/:
+   python3 scripts/compile_blobster_pack.py gifs --avatars-dir templates/<id>/workspace/avatars
    ```
    Or audit an existing avatar directory without recompiling assets:
    ```bash

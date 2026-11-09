@@ -11,7 +11,7 @@ Craft unmistakable visual identities for OpenClaw agents at every scale—from `
 1. **Tier 1 — Default Fast Pack (Every Agent)**:
    - **`avatars/blobster-design.json` + `avatars/blobster.svg`**: Native OpenClaw `256×256` (`viewBox="-12 -18 144 144"`) layered SVG using the fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes drawn last, empty `back` layer, `< 20` bold vector shapes that read clearly at `24px`).
    - **`avatars/hero-512.png`**: `512×512` 3D studio vinyl figurine render.
-   - **`avatars/blobster-idle.gif`, `avatars/blobster-wave.gif` & `avatars/cutout-256.png`**: Transparent looping GIF89a (`disposal=2`, `< 2 MiB`) and `256×256` PNG cutout sliced and despilled from a single `2×2` `#FF00FF` solid magenta chroma-key animation sheet.
+   - **`avatars/sprite-2x2.png`, `avatars/cutout-256.png`, plus hydrated `blobster-idle.gif` & `blobster-wave.gif`**: Single-frame `512×512` `2×2` despilled RGBA animation sheet and `256×256` PNG cutout in Git (`autoreview`-clean), deterministically hydrating transparent looping GIF89a (`disposal=2`, `< 2 MiB`) via `scripts/compile_blobster_pack.py gifs` (or emitted directly by `tier1` outside Git-tracked template roots).
 2. **Tier 2 — Optional Full Pet Rig (`--tier2`)**:
    - Upgrades a locked character to the 3-sheet `sprite_version: 2` (`1536×2288` `73`-frame atlas across `16` animation states + turnaround/expression sheets) for desktop/sidebar pet hosts.
 

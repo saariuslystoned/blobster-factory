@@ -6,16 +6,21 @@ Compiles and validates:
    that strictly match `src/agents/blobster-generation.ts` geometry and `24px` silhouette legibility.
 2. Tier 1 Fast Pack (`tier1`):
    - `512x512` 3D hero PNG (`avatars/hero-512.png`)
-   - `2x2` `#FF00FF` chroma-key animation sheet -> transparent looping `avatars/blobster-idle.gif`,
-     `avatars/blobster-wave.gif` (< 2 MiB), and `avatars/cutout-256.png`
+   - `2x2` `#FF00FF` chroma-key animation sheet -> single-frame `512x512` transparent `avatars/sprite-2x2.png`,
+     `avatars/cutout-256.png`, and looping `avatars/blobster-idle.gif` & `avatars/blobster-wave.gif` (< 2 MiB;
+     use `--omit-gifs` for single-frame-only Git trees)
    - Optional `--qa-out <path>` dark/light QA contact sheet (`24px`, `64px`, `256px` + `#FF00FF` spill & border-clip check)
-3. Standalone Visual QA (`qa`):
+3. GIF Hydration (`gifs`):
+   - Deterministically slices single-frame `avatars/sprite-2x2.png` into `blobster-idle.gif` and `blobster-wave.gif`
+     without AI regeneration (into `dist/avatars/<id>/` by default or `--out-dir` / `--in-place`).
+4. Standalone Visual QA (`qa`):
    - Audits any `avatars/` directory for `#FF00FF` chroma-key fringe spill, border clipping, SVG shape count,
      and `< 2 MiB` OpenClaw file budgets, emitting `qa-contact-sheet.png` outside the template tree.
 """
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import re
@@ -708,8 +713,8 @@ def normalize_cell_frame(cell_rgba: Image.Image, target_size: int = 256, pad_rat
     return canvas
 
 
-def save_transparent_gif(frames: list[Image.Image], out_path: Path, duration_ms: int = 220) -> None:
-    """Save RGBA frames as a clean looping transparent GIF89a under 2 MiB."""
+def encode_transparent_gif_bytes(frames: list[Image.Image], duration_ms: int = 220) -> bytes:
+    """Encode RGBA frames into a clean looping transparent GIF89a byte buffer under 2 MiB."""
     pal_frames: list[Image.Image] = []
     for frame in frames:
         rgba = frame.convert("RGBA")
@@ -723,9 +728,10 @@ def save_transparent_gif(frames: list[Image.Image], out_path: Path, duration_ms:
         quant.info["disposal"] = 2
         pal_frames.append(quant)
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    buf = io.BytesIO()
     pal_frames[0].save(
-        out_path,
+        buf,
+        format="GIF",
         save_all=True,
         append_images=pal_frames[1:],
         loop=0,
@@ -734,9 +740,71 @@ def save_transparent_gif(frames: list[Image.Image], out_path: Path, duration_ms:
         disposal=2,
         optimize=True,
     )
-    size = out_path.stat().st_size
-    if size > OPENCLAW_AVATAR_MAX_BYTES:
-        raise ValueError(f"Generated GIF {out_path} ({size} bytes) exceeds 2 MiB limit")
+    payload = buf.getvalue()
+    if len(payload) > OPENCLAW_AVATAR_MAX_BYTES:
+        raise ValueError(f"Generated GIF ({len(payload)} bytes) exceeds 2 MiB limit")
+    return payload
+
+
+def save_transparent_gif(frames: list[Image.Image], out_path: Path, duration_ms: int = 220) -> None:
+    """Save RGBA frames as a clean looping transparent GIF89a under 2 MiB."""
+    payload = encode_transparent_gif_bytes(frames, duration_ms=duration_ms)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(payload)
+
+
+def save_sprite_2x2_png(clean_frames: list[Image.Image], out_path: Path) -> None:
+    """Save 4 despilled square RGBA frames into a single-frame 2x2 transparent PNG sheet."""
+    if len(clean_frames) != 4:
+        raise ValueError(f"Expected 4 clean frames for 2x2 sprite sheet, got {len(clean_frames)}")
+    fw, fh = clean_frames[0].size
+    sheet = Image.new("RGBA", (fw * 2, fh * 2), (0, 0, 0, 0))
+    offsets = [(0, 0), (fw, 0), (0, fh), (fw, fh)]
+    for frame, (ox, oy) in zip(clean_frames, offsets):
+        sheet.alpha_composite(frame.convert("RGBA"), (ox, oy))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out_path, format="PNG", optimize=True)
+
+
+def slice_sprite_2x2_png(sprite_path: Path) -> list[Image.Image]:
+    """Slice a single-frame 2x2 transparent RGBA PNG into its 4 square quadrant frames."""
+    with Image.open(sprite_path) as sim:
+        rgba = sim.convert("RGBA")
+        sw, sh = rgba.size
+        if sw % 2 != 0 or sh % 2 != 0 or sw != sh:
+            raise ValueError(f"sprite-2x2.png must be an even square image, got {sw}x{sh}")
+        cw, ch = sw // 2, sh // 2
+        boxes = [(0, 0, cw, ch), (cw, 0, sw, ch), (0, ch, cw, sh), (cw, ch, sw, sh)]
+        return [rgba.crop(b).copy() for b in boxes]
+
+
+def hydrate_gifs_from_sprite_2x2(
+    avatars_dir: Path,
+    out_dir: Path,
+    idle_duration_ms: int = 260,
+    wave_duration_ms: int = 200,
+) -> dict[str, Any]:
+    """Deterministically materialize blobster-idle.gif and blobster-wave.gif from sprite-2x2.png."""
+    sprite_path = avatars_dir / "sprite-2x2.png"
+    if not sprite_path.is_file():
+        raise FileNotFoundError(f"Missing sprite-2x2.png in {avatars_dir}")
+    clean_frames = slice_sprite_2x2_png(sprite_path)
+    idle_frames = [clean_frames[0], clean_frames[1], clean_frames[0], clean_frames[1]]
+    wave_frames = [clean_frames[0], clean_frames[2], clean_frames[3], clean_frames[2]]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    idle_path = out_dir / "blobster-idle.gif"
+    wave_path = out_dir / "blobster-wave.gif"
+    save_transparent_gif(idle_frames, idle_path, duration_ms=idle_duration_ms)
+    save_transparent_gif(wave_frames, wave_path, duration_ms=wave_duration_ms)
+    return {
+        "ok": True,
+        "avatarsDir": str(avatars_dir.resolve()),
+        "outDir": str(out_dir.resolve()),
+        "idleGif": str(idle_path.resolve()),
+        "idleGifBytes": idle_path.stat().st_size,
+        "waveGif": str(wave_path.resolve()),
+        "waveGifBytes": wave_path.stat().st_size,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -785,14 +853,34 @@ def analyze_frame_qa(frame: Image.Image) -> dict[str, Any]:
     }
 
 
-def _extract_gif_rgba_frames(gif_path: Path) -> list[Image.Image]:
+def _extract_gif_rgba_frames_from_bytes(payload: bytes) -> list[Image.Image]:
     frames: list[Image.Image] = []
-    with Image.open(gif_path) as gim:
+    with Image.open(io.BytesIO(payload)) as gim:
         n_frames = getattr(gim, "n_frames", 1)
         for idx in range(n_frames):
             gim.seek(idx)
             frames.append(gim.convert("RGBA").copy())
     return frames
+
+
+def _extract_gif_rgba_frames(gif_path: Path) -> list[Image.Image]:
+    return _extract_gif_rgba_frames_from_bytes(gif_path.read_bytes())
+
+
+def _resolve_pack_gif_streams(avatars_dir: Path) -> tuple[bytes | None, list[Image.Image], bytes | None, list[Image.Image], str]:
+    idle_path = avatars_dir / "blobster-idle.gif"
+    wave_path = avatars_dir / "blobster-wave.gif"
+    sprite_path = avatars_dir / "sprite-2x2.png"
+    if idle_path.is_file() and wave_path.is_file():
+        ib = idle_path.read_bytes()
+        wb = wave_path.read_bytes()
+        return ib, _extract_gif_rgba_frames_from_bytes(ib), wb, _extract_gif_rgba_frames_from_bytes(wb), "disk_gifs"
+    if sprite_path.is_file():
+        quads = slice_sprite_2x2_png(sprite_path)
+        ib = encode_transparent_gif_bytes([quads[0], quads[1], quads[0], quads[1]], duration_ms=260)
+        wb = encode_transparent_gif_bytes([quads[0], quads[2], quads[3], quads[2]], duration_ms=200)
+        return ib, _extract_gif_rgba_frames_from_bytes(ib), wb, _extract_gif_rgba_frames_from_bytes(wb), "sprite_2x2"
+    return None, [], None, [], "missing"
 
 
 def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, Any]:
@@ -802,8 +890,7 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
     design_path = avatars_dir / "blobster-design.json"
     hero_path = avatars_dir / "hero-512.png"
     cutout_path = avatars_dir / "cutout-256.png"
-    idle_path = avatars_dir / "blobster-idle.gif"
-    wave_path = avatars_dir / "blobster-wave.gif"
+    sprite_path = avatars_dir / "sprite-2x2.png"
 
     agent_id = avatars_dir.parent.parent.name if avatars_dir.name == "avatars" else avatars_dir.name
     agent_name = agent_id
@@ -832,15 +919,6 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
                 errors.append("blobster.svg viewBox must be '-12 -18 144 144'")
             if root.attrib.get("width") != "256" or root.attrib.get("height") != "256":
                 errors.append("blobster.svg dimensions must be 256x256")
-            in_defs = False
-            for elem in root.iter():
-                tag = elem.tag.split("}")[-1]
-                if tag == "defs":
-                    in_defs = True
-                    continue
-                if not in_defs and tag in SHAPE_TAGS:
-                    total_svg_shapes += 1
-            # Re-count excluding <defs> accurately
             defs_shapes = sum(
                 1
                 for d in root.findall("{http://www.w3.org/2000/svg}defs") + root.findall("defs")
@@ -881,23 +959,48 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
             max_border_clip = max(max_border_clip, m_cut["borderClipPixels"])
             max_spill = max(max_spill, m_cut["magentaSpillPct"])
 
+    sprite_bytes = 0
+    if sprite_path.is_file():
+        sprite_bytes = sprite_path.stat().st_size
+        if sprite_bytes > OPENCLAW_AVATAR_MAX_BYTES:
+            errors.append(f"sprite-2x2.png ({sprite_bytes}B) exceeds 2 MiB")
+        try:
+            with Image.open(sprite_path) as sim:
+                if getattr(sim, "n_frames", 1) != 1:
+                    errors.append("sprite-2x2.png must be a single-frame PNG")
+            quads = slice_sprite_2x2_png(sprite_path)
+            for q_idx, q_img in enumerate(quads):
+                qm = analyze_frame_qa(q_img)
+                frame_metrics[f"sprite-2x2.png#q{q_idx}"] = qm
+                max_border_clip = max(max_border_clip, qm["borderClipPixels"])
+                max_spill = max(max_spill, qm["magentaSpillPct"])
+        except Exception as exc:
+            errors.append(f"Invalid sprite-2x2.png: {exc}")
+
     gif_bytes: dict[str, int] = {}
-    for gpath in (idle_path, wave_path):
-        if not gpath.is_file():
-            errors.append(f"Missing {gpath.name}")
-            continue
-        sz = gpath.stat().st_size
-        gif_bytes[gpath.name] = sz
-        if sz > OPENCLAW_AVATAR_MAX_BYTES:
-            errors.append(f"{gpath.name} ({sz}B) exceeds 2 MiB")
-        frames = _extract_gif_rgba_frames(gpath)
-        if len(frames) < 2:
-            errors.append(f"{gpath.name} must contain >= 2 animation frames")
-        for f_idx, fr in enumerate(frames):
-            fm = analyze_frame_qa(fr)
-            frame_metrics[f"{gpath.name}#f{f_idx}"] = fm
-            max_border_clip = max(max_border_clip, fm["borderClipPixels"])
-            max_spill = max(max_spill, fm["magentaSpillPct"])
+    animation_source = "missing"
+    try:
+        idle_b, idle_frames, wave_b, wave_frames, animation_source = _resolve_pack_gif_streams(avatars_dir)
+        if animation_source == "missing" or idle_b is None or wave_b is None:
+            errors.append("Missing animation frames (provide sprite-2x2.png or blobster-idle.gif + blobster-wave.gif)")
+        else:
+            for gname, gbytes, gframes in (
+                ("blobster-idle.gif", idle_b, idle_frames),
+                ("blobster-wave.gif", wave_b, wave_frames),
+            ):
+                sz = len(gbytes)
+                gif_bytes[gname] = sz
+                if sz > OPENCLAW_AVATAR_MAX_BYTES:
+                    errors.append(f"{gname} ({sz}B) exceeds 2 MiB")
+                if len(gframes) < 2:
+                    errors.append(f"{gname} must contain >= 2 animation frames")
+                for f_idx, fr in enumerate(gframes):
+                    fm = analyze_frame_qa(fr)
+                    frame_metrics[f"{gname}#f{f_idx}"] = fm
+                    max_border_clip = max(max_border_clip, fm["borderClipPixels"])
+                    max_spill = max(max_spill, fm["magentaSpillPct"])
+    except Exception as exc:
+        errors.append(f"Animation QA failed: {exc}")
 
     if max_border_clip > 0:
         errors.append(f"Detected {max_border_clip} border-clipped foreground pixels on outer 1px frame boundary")
@@ -909,6 +1012,7 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         "id": agent_id,
         "name": agent_name,
         "avatarsDir": str(avatars_dir.resolve()),
+        "animationSource": animation_source,
         "maxMagentaSpillPct": round(max_spill, 3),
         "maxSpillThresholdPct": max_spill_pct,
         "maxBorderClipPixels": max_border_clip,
@@ -916,6 +1020,7 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         "totalSvgShapes": total_svg_shapes,
         "svgBytes": svg_bytes,
         "hero512Bytes": hero_bytes,
+        "sprite2x2Bytes": sprite_bytes,
         "idleGifBytes": gif_bytes.get("blobster-idle.gif", 0),
         "waveGifBytes": gif_bytes.get("blobster-wave.gif", 0),
         "frameMetrics": frame_metrics,
@@ -962,8 +1067,11 @@ def render_qa_contact_sheet(avatars_dir: Path, out_path: Path, qa_report: dict[s
     cutout_64 = cutout_256.resize((64, 64), Image.Resampling.LANCZOS)
     cutout_24 = cutout_256.resize((24, 24), Image.Resampling.LANCZOS)
     hero_88 = Image.open(avatars_dir / "hero-512.png").convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
-    idle_frames = _extract_gif_rgba_frames(avatars_dir / "blobster-idle.gif")
-    wave_frames = _extract_gif_rgba_frames(avatars_dir / "blobster-wave.gif")
+    _, idle_frames, _, wave_frames, _ = _resolve_pack_gif_streams(avatars_dir)
+    if not idle_frames:
+        idle_frames = [cutout_256]
+    if not wave_frames:
+        wave_frames = [cutout_256]
 
     W, H = 1280, 760
     sheet = Image.new("RGBA", (W, H), (15, 19, 25, 255))
@@ -1131,6 +1239,7 @@ def compile_tier1_pack(
     gif_size: int = 256,
     qa_out_path: Path | None = None,
     max_spill_pct: float = 1.5,
+    omit_gifs: bool = False,
 ) -> dict[str, Any]:
     design = json.loads(design_json_path.read_text(encoding="utf-8"))
     svg_text = render_blobster_svg(design)
@@ -1165,13 +1274,16 @@ def compile_tier1_pack(
         for box in quadrants
     ]
 
-    idle_frames = [clean_frames[0], clean_frames[1], clean_frames[0], clean_frames[1]]
-    wave_frames = [clean_frames[0], clean_frames[2], clean_frames[3], clean_frames[2]]
+    sprite_2x2_path = output_dir / "sprite-2x2.png"
+    save_sprite_2x2_png(clean_frames, sprite_2x2_path)
 
     idle_gif_path = output_dir / "blobster-idle.gif"
     wave_gif_path = output_dir / "blobster-wave.gif"
-    save_transparent_gif(idle_frames, idle_gif_path, duration_ms=260)
-    save_transparent_gif(wave_frames, wave_gif_path, duration_ms=200)
+    if not omit_gifs:
+        idle_frames = [clean_frames[0], clean_frames[1], clean_frames[0], clean_frames[1]]
+        wave_frames = [clean_frames[0], clean_frames[2], clean_frames[3], clean_frames[2]]
+        save_transparent_gif(idle_frames, idle_gif_path, duration_ms=260)
+        save_transparent_gif(wave_frames, wave_gif_path, duration_ms=200)
 
     cutout_path = output_dir / "cutout-256.png"
     clean_frames[0].save(cutout_path, format="PNG", optimize=True)
@@ -1193,10 +1305,12 @@ def compile_tier1_pack(
         "svgBytes": svg_path.stat().st_size,
         "hero512": str(hero_512_path),
         "hero512Bytes": hero_512_path.stat().st_size,
-        "idleGif": str(idle_gif_path),
-        "idleGifBytes": idle_gif_path.stat().st_size,
-        "waveGif": str(wave_gif_path),
-        "waveGifBytes": wave_gif_path.stat().st_size,
+        "sprite2x2": str(sprite_2x2_path),
+        "sprite2x2Bytes": sprite_2x2_path.stat().st_size,
+        "idleGif": None if omit_gifs else str(idle_gif_path),
+        "idleGifBytes": qa_res["idleGifBytes"],
+        "waveGif": None if omit_gifs else str(wave_gif_path),
+        "waveGifBytes": qa_res["waveGifBytes"],
         "cutout256": str(cutout_path),
         "qa": {
             "ok": qa_res["ok"],
@@ -1217,12 +1331,17 @@ def main(argv: list[str] | None = None) -> int:
     p_svg.add_argument("--design", required=True, type=Path, help="Path to blobster-design.json")
     p_svg.add_argument("--out", required=True, type=Path, help="Output SVG path")
 
-    p_tier1 = sub.add_parser("tier1", help="Compile full Tier 1 Fast Pack (SVG + 512 PNG + transparent GIFs + QA)")
+    p_tier1 = sub.add_parser("tier1", help="Compile full Tier 1 Fast Pack (SVG + 512 PNG + sprite-2x2.png + GIFs + QA)")
     p_tier1.add_argument("--design", required=True, type=Path, help="Path to blobster-design.json")
     p_tier1.add_argument("--hero", required=True, type=Path, help="Path to 1:1 3D hero source image")
     p_tier1.add_argument("--sheet", required=True, type=Path, help="Path to 2x2 #FF00FF chroma-key sheet")
     p_tier1.add_argument("--out-dir", required=True, type=Path, help="Output avatars/ directory")
     p_tier1.add_argument("--gif-size", type=int, default=256, help="Square GIF pixel dimension (default: 256)")
+    p_tier1.add_argument(
+        "--omit-gifs",
+        action="store_true",
+        help="Write single-frame sprite-2x2.png + cutout-256.png without writing multi-frame .gif files to disk.",
+    )
     p_tier1.add_argument(
         "--qa-out",
         type=Path,
@@ -1234,6 +1353,26 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=1.5,
         help="Max allowed #FF00FF magenta fringe spill percentage per frame (default: 1.5).",
+    )
+
+    p_gifs = sub.add_parser("gifs", help="Hydrate blobster-idle.gif & blobster-wave.gif from single-frame sprite-2x2.png")
+    p_gifs.add_argument("--avatars-dir", type=Path, default=None, help="Path to one workspace/avatars directory")
+    p_gifs.add_argument("--out-dir", type=Path, default=None, help="Output directory for single-pack GIF hydration")
+    p_gifs.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Write blobster-idle.gif and blobster-wave.gif directly inside --avatars-dir.",
+    )
+    p_gifs.add_argument(
+        "--all-templates",
+        action="store_true",
+        help="Hydrate GIFs for all templates/*/workspace/avatars packs into --out-root (default: dist/avatars).",
+    )
+    p_gifs.add_argument(
+        "--out-root",
+        type=Path,
+        default=None,
+        help="Output root directory when using --all-templates (default: <repo>/dist/avatars).",
     )
 
     p_qa = sub.add_parser("qa", help="Audit an avatars/ pack and optionally emit a dark/light QA contact sheet PNG")
@@ -1276,12 +1415,41 @@ def main(argv: list[str] | None = None) -> int:
             gif_size=args.gif_size,
             qa_out_path=args.qa_out,
             max_spill_pct=args.max_spill_pct,
+            omit_gifs=args.omit_gifs,
         )
         print(json.dumps(res, indent=2))
         if not res["ok"]:
             for err in res["qa"]["errors"]:
                 print(f"qa error: {err}", file=sys.stderr)
             return 1
+        return 0
+
+    if args.cmd == "gifs":
+        repo_root = Path(__file__).resolve().parent.parent
+        if args.all_templates:
+            templates_root = repo_root / "templates"
+            out_root = args.out_root or (repo_root / "dist" / "avatars")
+            packs: list[dict[str, Any]] = []
+            for tdir in sorted(p for p in templates_root.iterdir() if p.is_dir()):
+                adir = tdir / "workspace" / "avatars"
+                if (adir / "sprite-2x2.png").is_file():
+                    dest = adir if args.in_place else (out_root / tdir.name)
+                    packs.append({"template": tdir.name, **hydrate_gifs_from_sprite_2x2(adir, dest)})
+            print(json.dumps({"ok": True, "hydratedCount": len(packs), "packs": packs}, indent=2))
+            return 0
+        if args.avatars_dir is None:
+            print("error: provide --avatars-dir <dir> or --all-templates", file=sys.stderr)
+            return 2
+        if not args.avatars_dir.is_dir():
+            print(f"error: avatars directory not found: {args.avatars_dir}", file=sys.stderr)
+            return 2
+        dest_dir = (
+            args.avatars_dir
+            if args.in_place
+            else (args.out_dir or (repo_root / "dist" / "avatars" / args.avatars_dir.parent.parent.name))
+        )
+        res_gif = hydrate_gifs_from_sprite_2x2(args.avatars_dir, dest_dir)
+        print(json.dumps(res_gif, indent=2))
         return 0
 
     if args.cmd == "qa":
