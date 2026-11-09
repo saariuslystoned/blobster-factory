@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="-12 -18 144 144" role="img">
+<metadata>MIT License
+
+Copyright (c) 2026 OpenClaw Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</metadata>
+<title>Blobster Smith</title><desc>Anvil Forgemaster in a charred leather blacksmith apron with brass welding goggles, iron tongs, and a glowing amber forge hammer.</desc>
+<defs><clipPath id="blobster-body-clip"><path d="M60 8 C32 8 16 32 16 52 C16 72 30 90 44 95 L44 104 L54 104 L54 96 C58 97.5 62 97.5 66 96 L66 104 L76 104 L76 95 C90 90 104 72 104 52 C104 32 88 8 60 8 Z"/></clipPath></defs>
+<g stroke="#c83228" stroke-width="4" stroke-linecap="round" fill="none"><path d="M46 14 Q38 4 31 7"/><path d="M74 14 Q82 4 89 7"/></g>
+<g><path d="M6 26 L14 48 M12 24 L8 48" fill="none" stroke="#525866" stroke-width="3" stroke-linecap="round"></path><path d="M4 26 C2 18 10 16 12 22 C14 16 20 20 15 27" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"></path><path d="M20 42 C5 37 0 47 5 57 C10 67 20 62 25 52 C28 45 25 42 20 42 Z" fill="#9e231b"/></g>
+<g><path d="M105 54 L112 22" fill="none" stroke="#5c3a21" stroke-width="4" stroke-linecap="round"></path><rect x="98" y="13" width="24" height="12" rx="3" fill="#f59e0b" stroke="#fef08a" stroke-width="2"></rect><path d="M100 42 C115 37 120 47 115 57 C110 67 100 62 95 52 C92 45 95 42 100 42 Z" fill="#9e231b"/></g>
+<path d="M60 8 C32 8 16 32 16 52 C16 72 30 90 44 95 L44 104 L54 104 L54 96 C58 97.5 62 97.5 66 96 L66 104 L76 104 L76 95 C90 90 104 72 104 52 C104 32 88 8 60 8 Z" fill="#c83228"/>
+<g clip-path="url(#blobster-body-clip)"><path d="M33 48 L44 48 L45 58 L75 58 L76 48 L87 48 L92 92 Q60 104 28 92 Z" fill="#3b281e"></path><path d="M30 65 H90" fill="none" stroke="#261912" stroke-width="4"></path><rect x="55" y="61" width="10" height="8" rx="1.5" fill="none" stroke="#eab308" stroke-width="2.2"></rect><path d="M46 72 H74 V86 Q60 91 46 86 Z" fill="#261912" stroke="#5c3a21" stroke-width="1.5"></path></g>
+<ellipse cx="48" cy="28" rx="20" ry="11" fill="#ffffff" opacity="0.1"/>
+<g><path d="M24 22 Q60 15 96 22" fill="none" stroke="#4a3222" stroke-width="3.5" stroke-linecap="round"></path><circle cx="45" cy="19" r="7" fill="#292524" stroke="#eab308" stroke-width="2.5"></circle><circle cx="75" cy="19" r="7" fill="#292524" stroke="#eab308" stroke-width="2.5"></circle><line x1="52" y1="19" x2="68" y2="19" stroke="#eab308" stroke-width="2.5"></line></g>
+<g><circle cx="45" cy="32" r="5.5" fill="#0a1014"/><circle cx="75" cy="32" r="5.5" fill="#0a1014"/><circle cx="46.5" cy="30.5" r="2.2" fill="#fde68a"/><circle cx="76.5" cy="30.5" r="2.2" fill="#fde68a"/></g>
+</svg>

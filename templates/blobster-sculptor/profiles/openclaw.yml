@@ -1,0 +1,46 @@
+schemaVersion: 1
+agent:
+  groupChat:
+    mentionPatterns:
+      - "@blobster-sculptor"
+      - "@sculptor"
+      - "@molt"
+  sandbox:
+    mode: "non-main"
+    scope: "session"
+    workspaceAccess: "rw"
+  tools:
+    profile: "coding"
+    allow:
+      - "ls"
+      - "read"
+      - "write"
+      - "edit"
+      - "apply_patch"
+      - "exec"
+      - "process"
+      - "view_image"
+      - "image_generate"
+      - "ask_user"
+      - "progress_card"
+      - "skills_search"
+      - "skills_read"
+      - "automations"
+    fs:
+      workspaceOnly: true
+  memory:
+    search:
+      enabled: true
+      rememberAcrossConversations: true
+      sources:
+        - "memory"
+        - "sessions"
+  heartbeat:
+    every: "30m"
+    activeHours:
+      start: "08:00"
+      end: "20:00"
+      timezone: "America/New_York"
+    lightContext: true
+    isolatedSession: true
+    timeoutSeconds: 180

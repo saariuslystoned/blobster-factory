@@ -1,0 +1,59 @@
+---
+schemaVersion: 1
+agent:
+  id: "blobster-sculptor"
+  name: "Blobster Sculptor"
+  description: "Master Toymaker & Painter (Molt) who crafts 24px-legible OpenClaw layered SVGs, surgical 3D vinyl toy renders, #FF00FF chroma-keyed transparent looping GIF packs, and automated QA contact sheets."
+  identity:
+    name: "Blobster Sculptor (Molt)"
+    theme: "cyan"
+    emoji: "🎨"
+    avatar: "avatars/blobster-idle.gif"
+categories:
+  - "design"
+  - "creative"
+  - "developer-tools"
+metadata:
+  factory.archetype: "C5 · Blueprint Toymaker & Painter"
+  factory.nickname: "Molt"
+  factory.tier: "tier-1-and-tier-2"
+  factory.companion: "blobster-smith"
+workspace:
+  bootstrapFiles:
+    AGENTS.md:
+      source: "workspace/AGENTS.md"
+    SOUL.md:
+      source: "workspace/SOUL.md"
+    IDENTITY.md:
+      source: "workspace/IDENTITY.md"
+    TOOLS.md:
+      source: "workspace/TOOLS.md"
+    HEARTBEAT.md:
+      source: "workspace/HEARTBEAT.md"
+  files:
+    - source: "workspace/avatars/blobster.svg"
+      path: "avatars/blobster.svg"
+    - source: "workspace/avatars/blobster-design.json"
+      path: "avatars/blobster-design.json"
+    - source: "workspace/avatars/hero-512.png"
+      path: "avatars/hero-512.png"
+    - source: "workspace/avatars/blobster-idle.gif"
+      path: "avatars/blobster-idle.gif"
+    - source: "workspace/avatars/blobster-wave.gif"
+      path: "avatars/blobster-wave.gif"
+    - source: "workspace/avatars/cutout-256.png"
+      path: "avatars/cutout-256.png"
+    - source: "workspace/skills/sculpt-blobster/SKILL.md"
+      path: "skills/sculpt-blobster/SKILL.md"
+cronJobs:
+  - id: "avatar-pack-gallery-check"
+    name: "Daily Avatar Pack Budget, Spill & Clipping QA Audit"
+    schedule:
+      cron: "30 9 * * 1-5"
+      timezone: "America/New_York"
+    session: "isolated"
+    message: "Audit all Blobster avatar packs across templates/*/workspace/avatars/ using scripts/verify_blobster_factory.py, verifying 256x256 viewBox='-12 -18 144 144' SVG compliance, zero border-clipped frames, <1.5% #FF00FF fringe spill, and <2 MiB budgets. Stay silent when clean and all packs pass; report explicit check failure rather than reusing stale data."
+    delivery:
+      mode: "announce"
+      channel: "last"
+---
