@@ -37,12 +37,3 @@ agent:
       sources:
         - "memory"
         - "sessions"
-  heartbeat:
-    every: "30m"
-    activeHours:
-      start: "08:00"
-      end: "20:00"
-      timezone: "America/New_York"
-    lightContext: true
-    isolatedSession: true
-    timeoutSeconds: 180

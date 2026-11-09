@@ -26,8 +26,6 @@ workspace:
       source: "workspace/IDENTITY.md"
     TOOLS.md:
       source: "workspace/TOOLS.md"
-    HEARTBEAT.md:
-      source: "workspace/HEARTBEAT.md"
   files:
     - source: "workspace/avatars/blobster.svg"
       path: "avatars/blobster.svg"

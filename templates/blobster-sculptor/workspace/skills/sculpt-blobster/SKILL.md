@@ -5,7 +5,7 @@ description: Design, surgically refine, compile, and QA-verify an OpenClaw Blobs
 
 # Sculpt Blobster (`sculpt-blobster`)
 
-Use this skill to craft, refine, compile, and visually verify the character pack for any **OpenClaw Agent Template**.
+Use this skill to craft, refine, compile, and visually verify the character pack for any **OpenClaw Agent Template** (`avatars/blobster.svg` is the single live avatar rendered inside OpenClaw chat today, while `hero-512.png`, `sprite-2x2.png`, `cutout-256.png`, and hydrated `blobster-idle.gif` / `blobster-wave.gif` power GitHub/ClawHub READMEs, showcase cards, and external desktop-pet apps such as **Codex Pets**).
 
 ## Prompt Rubric: Fresh Generate vs. Surgical Edit
 
@@ -72,8 +72,8 @@ When an existing hero or `2×2` sheet is 90% right and needs a targeted fix:
 3. **Inspect `<id>-qa-contact-sheet.png` Directly (`view_image`)**:
    - Confirm **`24px` chat pill** + `4×` pixel loupe silhouette legibility on both Dark (`#0D1117`) and Light (`#F8FAFC`) panels.
    - Confirm **`0` border-clipped pixels** across `cutout-256.png` and all GIF frames.
-   - Confirm **`<= 1.5%` `#FF00FF` residual fringe spill** and `< 2 MiB` per shipped file.
+   - Confirm **`<= 1.5%` `#FF00FF` residual fringe spill**, synchronized `blobster-design.json` <-> `blobster.svg`, and `< 1 MiB` per template managed file (`< 2 MiB` per hydrated GIF).
 
 ## Tier 2: Downstream Extended Pet Rig Specification (Roadmap — Not in `compile_blobster_pack.py` v1)
 
-When a locked Tier 1 character is later promoted to an external desktop/sidebar interactive pet host (`sprite_version: 2`), design 3 reference sheets (hero, 4-angle turnaround, 6-state expression grid) plus 6 `2×2` `#FF00FF` pose sheets targeting the external `1536×2288` (`8×11` × `192×208`, `73`-frame) atlas pipeline (`compile_blobster_pack.py` v1 implements `svg`, `tier1`, `gifs`, and `qa` only).
+When a locked Tier 1 character is later promoted to **Codex Pets** or an external desktop/sidebar interactive pet host (`sprite_version: 2`), design 3 reference sheets (hero, 4-angle turnaround, 6-state expression grid) plus 6 `2×2` `#FF00FF` pose sheets targeting the external `1536×2288` (`8×11` × `192×208`, `73`-frame) atlas pipeline (`compile_blobster_pack.py` v1 implements `svg`, `tier1`, `gifs`, and `qa` only).

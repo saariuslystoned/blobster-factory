@@ -28,8 +28,8 @@
 An open-source workshop, deterministic asset compiler, template linter, and starter template collection for **[OpenClaw](https://github.com/openclaw) Agent Templates** (`CLAW.md`, `package.json`, `profiles/openclaw.yml`, and `workspace/`).
 
 Every OpenClaw agent needs two halves that fit together cleanly:
-1. **The Brain (`Blobster Smith`)** — A solo-install-ready, schema-validated `CLAW.md` manifest, bounded `profiles/openclaw.yml` tool allowlists, `AGENTS.md` / `SOUL.md` / `TOOLS.md` / `HEARTBEAT.md` bootstrap files, skills, quiet-on-clean 5-field cron routines, draft-first human gates, and zero-secret linting.
-2. **The Shell (`Blobster Sculptor / Molt`)** — A character identity that reads unmistakably at `24×24` pixels in any OpenClaw sidebar (`avatars/blobster.svg`) **and** comes alive as a 3D soft-touch vinyl collectible (`avatars/hero-512.png`, single-frame `avatars/sprite-2x2.png`, and `#FF00FF` chroma-keyed transparent looping `blobster-idle.gif` & `blobster-wave.gif`), verified by an automated dark/light QA contact sheet.
+1. **The Brain (`Blobster Smith`)** — A solo-install-ready, schema-validated `CLAW.md` manifest, bounded `profiles/openclaw.yml` tool allowlists (`fs.workspaceOnly: true`, `sandbox.mode: "non-main"`), `AGENTS.md` / `SOUL.md` / `IDENTITY.md` / `TOOLS.md` bootstrap files (with `HEARTBEAT.md` optional so schedules never double-fire), skills, one intentional quiet-on-clean 5-field cron routine (or on-demand default), plus authoritative `openclaw templates validate` integration and Factory house-rule policy/secret heuristics.
+2. **The Shell (`Blobster Sculptor / Molt`)** — OpenClaw displays **one** static configured avatar (`avatars/blobster.svg`) inside OpenClaw chat today (no automatic chat state-switching), reading unmistakably at `24×24` pixels in any sidebar. Alongside it, Molt compiles a 3D soft-touch vinyl companion pack (`avatars/hero-512.png`, single-frame `avatars/sprite-2x2.png`, `avatars/cutout-256.png`, and `#FF00FF` chroma-keyed looping `blobster-idle.gif` & `blobster-wave.gif`) for **GitHub/ClawHub READMEs, showcase cards, and external desktop-pet apps such as Codex Pets**, verified by an automated dark/light QA contact sheet.
 
 ---
 
@@ -86,12 +86,12 @@ Every OpenClaw agent needs two halves that fit together cleanly:
 
 ## Two-Tier Blobster Pack Architecture
 
-Every character built in the workshop ships with the **Tier 1 · Fast Pack** compiled by `scripts/compile_blobster_pack.py` (`svg`, `tier1`, `gifs`, `qa`), with **Tier 2** documented as the downstream desktop-pet rig specification:
+OpenClaw displays **one** static configured avatar (`avatars/blobster.svg`) inside OpenClaw chat today (there is no automatic state-switching inside OpenClaw chat). Every character built in the workshop ships with that native SVG plus the **Tier 1 · Fast Pack** compiled by `scripts/compile_blobster_pack.py` (`svg`, `tier1`, `gifs`, `qa`) for **GitHub/ClawHub READMEs, showcase cards, and external desktop-pet apps such as Codex Pets**, with **Tier 2** documented as the downstream **Codex Pets** / desktop-pet rig specification:
 
 | Tier | Status & Target Use Case | Artifacts | Budget & QA Gates |
 | --- | --- | --- | --- |
-| **Tier 1 · Fast Pack** *(Shipped in `compile_blobster_pack.py`)* | Every OpenClaw Agent Template & ClawHub listing | 1. `avatars/blobster-design.json` + `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"`)<br>2. `avatars/hero-512.png` (`512×512` 3D studio vinyl render)<br>3. `avatars/sprite-2x2.png` (`512×512` single-frame despilled `2×2` sheet) + `avatars/cutout-256.png`<br>4. Hydrated `blobster-idle.gif` & `blobster-wave.gif` (`compile_blobster_pack.py gifs`) + external `qa-contact-sheet.png` | Fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes at `(45,32)` & `(75,32)`), empty `back` layer, `<= 24` custom vector shapes, `0` SVG & raster border-clip px, `<= 1.5%` `#FF00FF` spill, `< 2 MiB` per file |
-| **Tier 2 · Full Pet Rig** *(Roadmap / Downstream Spec — not in `compile_blobster_pack.py` v1)* | External desktop / sidebar interactive pet hosts | 6 `2×2` `#FF00FF` key-pose sheets + 3 reference sheets (`73` populated frames) targeting a `1536×2288` RGBA `sprite.png` + `manifest.json` (`sprite_version: 2`) | `192×208` per cell (`8×11` grid) + turnaround & expression reference sheets |
+| **Tier 1 · Fast Pack** *(Shipped in `compile_blobster_pack.py`)* | Live OpenClaw chat (`blobster.svg`) + GitHub/ClawHub READMEs, showcase cards, & **Codex Pets** | 1. `avatars/blobster-design.json` + `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"` — live OpenClaw chat avatar)<br>2. `avatars/hero-512.png` (`512×512` 3D studio vinyl render)<br>3. `avatars/sprite-2x2.png` (`512×512` single-frame despilled `2×2` sheet) + `avatars/cutout-256.png`<br>4. Hydrated `blobster-idle.gif` & `blobster-wave.gif` (`compile_blobster_pack.py gifs`) + external `qa-contact-sheet.png` | Fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes at `(45,32)` & `(75,32)`), empty `back` layer, `<= 24` custom vector shapes, `0` SVG & raster border-clip px, `<= 1.5%` `#FF00FF` spill, `< 1 MiB` per template managed file (`< 2 MiB` hydrated GIFs) |
+| **Tier 2 · Full Pet Rig** *(Roadmap / Downstream Spec — not in `compile_blobster_pack.py` v1)* | External desktop / sidebar interactive pet hosts (such as **Codex Pets**) | 6 `2×2` `#FF00FF` key-pose sheets + 3 reference sheets (`73` populated frames) targeting a `1536×2288` RGBA `sprite.png` + `manifest.json` (`sprite_version: 2`) | `192×208` per cell (`8×11` grid) + turnaround & expression reference sheets |
 
 ---
 
@@ -103,7 +103,7 @@ Every character built in the workshop ships with the **Tier 1 · Fast Pack** com
 2. Point OpenClaw at either template package directory:
    - [`templates/blobster-smith`](templates/blobster-smith)
    - [`templates/blobster-sculptor`](templates/blobster-sculptor)
-3. Or export any configured agent from your OpenClaw agent list via **`⋯` -> `Create Template`** and let **Blobster Smith** + **Molt** sanitize, lint, and package it under `templates/<agent-id>/`.
+3. Or click **`⋯` -> `Create Template`** on any configured OpenClaw agent — OpenClaw invokes `$create-template` in chat to draft a fresh, clean portable template proposal with a human review modal (it never dumps raw workspace files, memories, or chat transcripts) — and let **Blobster Smith** + **Molt** refine, style, and lint it under `templates/<agent-id>/`.
 
 ### 2. Compile a Tier 1 Visual Pack + QA Contact Sheet
 
@@ -126,34 +126,33 @@ python3 scripts/compile_blobster_pack.py gifs --all-templates
 
 ```text
 blobster-factory/
-├── .github/assets/
-│   ├── banner-dark.webp              # 1600x900 (16:9) Obsidian Telemetry Bench hero banner
-│   ├── banner-light.webp             # 1600x900 (16:9) Specimen Drawer Workbench hero banner
-│   └── social-preview.png            # 1280x640 (2:1) GitHub Social Preview (< 1 MiB)
+├── .github/
+│   ├── assets/                       # 1600x900 dark/light hero banners (.webp) + 1280x640 social-preview.png
+│   └── workflows/ci.yml              # Fast Python linter, negative-case, and visual QA CI workflow
 ├── scripts/
 │   ├── compile_blobster_pack.py      # Workshop entrypoint -> canonical sculptor pack/GIF/QA compiler
-│   ├── lint_claw_template.py         # Workshop entrypoint -> canonical smith schema/secret/trust linter
-│   └── verify_blobster_factory.py    # End-to-end template linter, avatar QA, and GitHub asset verifier
+│   ├── lint_claw_template.py         # Workshop entrypoint -> canonical smith house-rule & OpenClaw CLI linter
+│   └── verify_blobster_factory.py    # End-to-end template linter, negative fixtures, avatar QA, and asset verifier
 ├── skills/
-│   └── blobster-factory/SKILL.md     # Portable skill for agent harnesses
+│   └── blobster-factory/SKILL.md     # Repository-local workshop skill (requires full blobster-factory clone)
 └── templates/
-    ├── blobster-smith/               # C1 · Anvil Forgemaster (standalone OpenClaw Agent Template)
+    ├── blobster-smith/               # C1 · Anvil Forgemaster (15-file standalone OpenClaw Agent Template)
     │   ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } }
     │   ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/lint_claw_template.py)
-    │   ├── profiles/openclaw.yml     # Bounded coding tool allowlist + sandbox + heartbeat
-    │   └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, HEARTBEAT.md, avatars/, scripts/, skills/
-    └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (standalone OpenClaw Agent Template)
+    │   ├── profiles/openclaw.yml     # Bounded coding tool allowlist + fs.workspaceOnly + non-main sandbox
+    │   └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
+    └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (15-file standalone OpenClaw Agent Template)
         ├── package.json
         ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/compile_blobster_pack.py)
         ├── profiles/openclaw.yml
-        └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, HEARTBEAT.md, avatars/, scripts/, skills/
+        └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
 ```
 
 ---
 
 ## Verification
 
-Run the zero-dependency linter, visual QA audit, and repository verifier:
+`lint_claw_template.py` separates **authoritative OpenClaw compatibility** (`openclaw templates validate <dir> --json`, invoked automatically when `openclaw` is on `PATH`, or reported honestly as `"openclawCompatibility": "unverified"` when offline) from **Factory house rules** (`factoryPolicyOk`: confined `1 MiB` / `4 MiB` regular-file inventory, zero unlisted files, and secret-pattern / policy-phrase heuristics):
 
 ```bash
 python3 scripts/lint_claw_template.py --json

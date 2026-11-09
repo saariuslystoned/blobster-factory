@@ -3,19 +3,22 @@
 
 Compiles and validates:
 1. OpenClaw-compliant `256x256` (`viewBox="-12 -18 144 144"`) layered SVG avatars (`avatars/blobster.svg`)
-   that strictly match `src/agents/blobster-generation.ts` geometry and `24px` silhouette legibility.
-2. Tier 1 Fast Pack (`tier1`):
-   - `512x512` 3D hero PNG (`avatars/hero-512.png`)
+   that strictly match `src/agents/blobster-generation.ts` geometry and `24px` silhouette legibility
+   (the single live avatar displayed inside OpenClaw chat today).
+2. Tier 1 Fast Pack (`tier1`) for GitHub/ClawHub READMEs, showcase cards, and external desktop-pet apps
+   such as Codex Pets:
+   - `512x512` 3D hero PNG (`avatars/hero-512.png`, `< 1 MiB` template managed-file budget)
    - `2x2` `#FF00FF` chroma-key animation sheet -> single-frame `512x512` transparent `avatars/sprite-2x2.png`,
-     `avatars/cutout-256.png`, and looping `avatars/blobster-idle.gif` & `avatars/blobster-wave.gif` (< 2 MiB;
-     use `--omit-gifs` for single-frame-only Git trees)
+     `256x256` `avatars/cutout-256.png` (`< 1 MiB` each), and looping `avatars/blobster-idle.gif` &
+     `avatars/blobster-wave.gif` (`< 2 MiB`; use `--omit-gifs` for single-frame-only Git trees)
    - Optional `--qa-out <path>` dark/light QA contact sheet (`24px`, `64px`, `256px` + `#FF00FF` spill & border-clip check)
 3. GIF Hydration (`gifs`):
    - Deterministically slices single-frame `avatars/sprite-2x2.png` into `blobster-idle.gif` and `blobster-wave.gif`
      without AI regeneration (into `dist/avatars/<id>/` by default or `--out-dir` / `--in-place`).
 4. Standalone Visual QA (`qa`):
-   - Audits any `avatars/` directory for `#FF00FF` chroma-key fringe spill, border clipping, SVG shape count,
-     and `< 2 MiB` OpenClaw file budgets, emitting `qa-contact-sheet.png` outside the template tree.
+   - Audits any `avatars/` directory for non-empty foregrounds, `blobster-design.json` <-> `blobster.svg` sync,
+     `#FF00FF` chroma-key fringe spill (interior & alpha-edge), border clipping, SVG shape count, and
+     `< 1 MiB` template managed-file / `< 2 MiB` GIF byte budgets, emitting `qa-contact-sheet.png` outside the template tree.
 """
 from __future__ import annotations
 
@@ -96,6 +99,7 @@ TRANSFORM_RE = re.compile(r"^(?:(?:translate|scale|rotate)\([\s,0-9eE.+-]+\)\s*)
 TRANSFORM_CALL_RE = re.compile(r"(translate|scale|rotate)\(([^)]*)\)")
 PATH_TOKEN_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
 OPENCLAW_AVATAR_MAX_BYTES = 2 * 1024 * 1024
+OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES = 1024 * 1024
 BASE_TEMPLATE_SHAPE_COUNT = 10  # 2 antennae + 2 claws + 1 body + 1 highlight + 4 eye circles
 MAX_CUSTOM_SVG_SHAPES = 24
 
@@ -1173,24 +1177,44 @@ def analyze_frame_qa(frame: Image.Image) -> dict[str, Any]:
 
     opaque_px = 0
     spill_px = 0
+    edge_px = 0
+    edge_spill_px = 0
     for y in range(h):
         for x in range(w):
             r, g, b, a = pixels[x, y]
             if a <= 24:
                 continue
             opaque_px += 1
+            is_edge = (
+                x == 0
+                or y == 0
+                or x == w - 1
+                or y == h - 1
+                or pixels[x - 1, y][3] <= 24
+                or pixels[x + 1, y][3] <= 24
+                or pixels[x, y - 1][3] <= 24
+                or pixels[x, y + 1][3] <= 24
+            )
+            if is_edge:
+                edge_px += 1
             magenta_excess = min(r, b) - g
             if magenta_excess > 70 and b > 120 and abs(r - b) < 85:
                 spill_px += 1
+                if is_edge:
+                    edge_spill_px += 1
 
     spill_pct = round((100.0 * spill_px / max(1, opaque_px)), 3)
+    edge_spill_pct = round((100.0 * edge_spill_px / max(1, edge_px)), 3)
     return {
         "width": w,
         "height": h,
         "opaquePixels": opaque_px,
+        "edgePixels": edge_px,
         "borderClipPixels": border_clip_px,
         "magentaSpillPixels": spill_px,
         "magentaSpillPct": spill_pct,
+        "edgeMagentaSpillPixels": edge_spill_px,
+        "edgeMagentaSpillPct": edge_spill_pct,
     }
 
 
@@ -1338,10 +1362,12 @@ def _count_svg_viewbox_overflow_shapes(svg_text: str, border_inset: float = 144.
 
 
 def validate_compiled_blobster_svg(svg_text: str) -> dict[str, int]:
-    """Enforce Blobster SVG byte budget, dimensions, <= 24 custom shape cap, and safe canvas bounds."""
+    """Enforce Blobster SVG byte budget, dimensions, <= 24 custom shape cap, non-empty foreground, and safe canvas bounds."""
     svg_bytes = len(svg_text.encode("utf-8"))
-    if svg_bytes > OPENCLAW_AVATAR_MAX_BYTES:
-        raise ValueError(f"Blobster SVG ({svg_bytes}B) exceeds 2 MiB limit")
+    if svg_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+        raise ValueError(
+            f"Blobster SVG ({svg_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit"
+        )
     root = ET.fromstring(svg_text)
     if root.attrib.get("viewBox") != "-12 -18 144 144":
         raise ValueError("Blobster SVG viewBox must be '-12 -18 144 144'")
@@ -1367,6 +1393,8 @@ def validate_compiled_blobster_svg(svg_text: str) -> dict[str, int]:
         )
     if _HAS_PILLOW:
         m_svg = analyze_frame_qa(rasterize_blobster_svg(svg_text, out_size=256, supersample=4))
+        if m_svg["opaquePixels"] <= 0:
+            raise ValueError("Blobster SVG renders to an empty/transparent canvas")
         if m_svg["borderClipPixels"] > 0:
             raise ValueError(
                 f"Blobster SVG clips {m_svg['borderClipPixels']} pixel(s) on the outer 1px 256x256 frame boundary"
@@ -1390,20 +1418,25 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
 
     agent_id = _infer_pack_id(avatars_dir)
     agent_name = agent_id
+    expected_svg_text: str | None = None
     if design_path.is_file():
+        design_bytes = design_path.stat().st_size
+        if design_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"blobster-design.json ({design_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
         try:
             d_obj = json.loads(design_path.read_text(encoding="utf-8"))
             agent_id = str(d_obj.get("id", agent_id))
             agent_name = str(d_obj.get("name", agent_name))
             if d_obj.get("layers", {}).get("back", "") != "":
                 errors.append("blobster-design.json layer 'back' must be empty")
-            render_blobster_svg(d_obj)
+            expected_svg_text = render_blobster_svg(d_obj)
         except Exception as exc:
             errors.append(f"Invalid blobster-design.json: {exc}")
 
     frame_metrics: dict[str, Any] = {}
     max_border_clip = 0
     max_spill = 0.0
+    max_edge_spill = 0.0
 
     total_svg_shapes = 0
     custom_svg_shapes = 0
@@ -1412,10 +1445,14 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         errors.append("Missing blobster.svg")
     else:
         svg_bytes = svg_path.stat().st_size
-        if svg_bytes > OPENCLAW_AVATAR_MAX_BYTES:
-            errors.append(f"blobster.svg ({svg_bytes}B) exceeds 2 MiB")
+        if svg_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"blobster.svg ({svg_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
         try:
             svg_raw_text = svg_path.read_text(encoding="utf-8")
+            if expected_svg_text is not None and svg_raw_text.strip() != expected_svg_text.strip():
+                errors.append(
+                    "blobster.svg is out of sync with blobster-design.json (regenerate via 'compile_blobster_pack.py svg' or 'tier1')"
+                )
             root = ET.fromstring(svg_raw_text)
             if root.attrib.get("viewBox") != "-12 -18 144 144":
                 errors.append("blobster.svg viewBox must be '-12 -18 144 144'")
@@ -1436,6 +1473,8 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
                 )
             m_svg = analyze_frame_qa(rasterize_blobster_svg(svg_raw_text, out_size=256, supersample=4))
             frame_metrics["blobster.svg"] = m_svg
+            if m_svg["opaquePixels"] <= 0:
+                errors.append("blobster.svg renders to an empty/transparent canvas")
             max_border_clip = max(max_border_clip, m_svg["borderClipPixels"])
             overflow_cnt = _count_svg_viewbox_overflow_shapes(svg_raw_text)
             if overflow_cnt > 0:
@@ -1450,36 +1489,53 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         errors.append("Missing hero-512.png")
     else:
         hero_bytes = hero_path.stat().st_size
-        if hero_bytes > OPENCLAW_AVATAR_MAX_BYTES:
-            errors.append(f"hero-512.png ({hero_bytes}B) exceeds 2 MiB")
+        if hero_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"hero-512.png ({hero_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
         with Image.open(hero_path) as him:
             if him.size != (512, 512):
                 errors.append(f"hero-512.png size {him.size} != (512, 512)")
+            m_hero = analyze_frame_qa(him)
+            if m_hero["opaquePixels"] <= 0:
+                errors.append("hero-512.png has zero visible foreground pixels")
 
+    cutout_bytes = 0
     if not cutout_path.is_file():
         errors.append("Missing cutout-256.png")
     else:
+        cutout_bytes = cutout_path.stat().st_size
+        if cutout_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"cutout-256.png ({cutout_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
         with Image.open(cutout_path) as cim:
+            if cim.size != (256, 256):
+                errors.append(f"cutout-256.png size {cim.size} != (256, 256)")
             m_cut = analyze_frame_qa(cim)
             frame_metrics["cutout-256.png"] = m_cut
+            if m_cut["opaquePixels"] <= 0:
+                errors.append("cutout-256.png has zero visible foreground pixels")
             max_border_clip = max(max_border_clip, m_cut["borderClipPixels"])
             max_spill = max(max_spill, m_cut["magentaSpillPct"])
+            max_edge_spill = max(max_edge_spill, m_cut["edgeMagentaSpillPct"])
 
     sprite_bytes = 0
     if sprite_path.is_file():
         sprite_bytes = sprite_path.stat().st_size
-        if sprite_bytes > OPENCLAW_AVATAR_MAX_BYTES:
-            errors.append(f"sprite-2x2.png ({sprite_bytes}B) exceeds 2 MiB")
+        if sprite_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"sprite-2x2.png ({sprite_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
         try:
             with Image.open(sprite_path) as sim:
                 if getattr(sim, "n_frames", 1) != 1:
                     errors.append("sprite-2x2.png must be a single-frame PNG")
+                if sim.size != (512, 512):
+                    errors.append(f"sprite-2x2.png size {sim.size} != (512, 512)")
             quads = slice_sprite_2x2_png(sprite_path)
             for q_idx, q_img in enumerate(quads):
                 qm = analyze_frame_qa(q_img)
                 frame_metrics[f"sprite-2x2.png#q{q_idx}"] = qm
+                if qm["opaquePixels"] <= 0:
+                    errors.append(f"sprite-2x2.png#q{q_idx} has zero visible foreground pixels")
                 max_border_clip = max(max_border_clip, qm["borderClipPixels"])
                 max_spill = max(max_spill, qm["magentaSpillPct"])
+                max_edge_spill = max(max_edge_spill, qm["edgeMagentaSpillPct"])
         except Exception as exc:
             errors.append(f"Invalid sprite-2x2.png: {exc}")
 
@@ -1503,8 +1559,11 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
                 for f_idx, fr in enumerate(gframes):
                     fm = analyze_frame_qa(fr)
                     frame_metrics[f"{gname}#f{f_idx}"] = fm
+                    if fm["opaquePixels"] <= 0:
+                        errors.append(f"{gname}#f{f_idx} has zero visible foreground pixels")
                     max_border_clip = max(max_border_clip, fm["borderClipPixels"])
                     max_spill = max(max_spill, fm["magentaSpillPct"])
+                    max_edge_spill = max(max_edge_spill, fm["edgeMagentaSpillPct"])
     except Exception as exc:
         errors.append(f"Animation QA failed: {exc}")
 
@@ -1520,12 +1579,14 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         "avatarsDir": str(avatars_dir.resolve()),
         "animationSource": animation_source,
         "maxMagentaSpillPct": round(max_spill, 3),
+        "maxEdgeMagentaSpillPct": round(max_edge_spill, 3),
         "maxSpillThresholdPct": max_spill_pct,
         "maxBorderClipPixels": max_border_clip,
         "customSvgShapes": custom_svg_shapes,
         "totalSvgShapes": total_svg_shapes,
         "svgBytes": svg_bytes,
         "hero512Bytes": hero_bytes,
+        "cutout256Bytes": cutout_bytes,
         "sprite2x2Bytes": sprite_bytes,
         "idleGifBytes": gif_bytes.get("blobster-idle.gif", 0),
         "waveGifBytes": gif_bytes.get("blobster-wave.gif", 0),
@@ -1765,6 +1826,9 @@ def compile_tier1_pack(
     hero_512_path = output_dir / "hero-512.png"
     hero_512.save(hero_512_path, format="PNG", optimize=True)
 
+    if gif_size < 32 or gif_size > 1024:
+        raise ValueError(f"--gif-size must be between 32 and 1024, got {gif_size}")
+
     sheet_img = Image.open(sheet_2x2_path).convert("RGBA")
     sw, sh = sheet_img.size
     cw, ch = sw // 2, sh // 2
@@ -1775,24 +1839,31 @@ def compile_tier1_pack(
         (0 + ix, ch + iy, cw - ix, sh - iy),
         (cw + ix, ch + iy, sw - ix, sh - iy),
     ]
-    clean_frames = [
-        normalize_cell_frame(despike_magenta_cell(sheet_img.crop(box)), target_size=gif_size)
-        for box in quadrants
-    ]
+    despilled_cells = [despike_magenta_cell(sheet_img.crop(box)) for box in quadrants]
+    canonical_frames_256 = [normalize_cell_frame(cell, target_size=256) for cell in despilled_cells]
 
     sprite_2x2_path = output_dir / "sprite-2x2.png"
-    save_sprite_2x2_png(clean_frames, sprite_2x2_path)
+    save_sprite_2x2_png(canonical_frames_256, sprite_2x2_path)
+
+    cutout_path = output_dir / "cutout-256.png"
+    canonical_frames_256[0].save(cutout_path, format="PNG", optimize=True)
 
     idle_gif_path = output_dir / "blobster-idle.gif"
     wave_gif_path = output_dir / "blobster-wave.gif"
-    if not omit_gifs:
-        idle_frames = [clean_frames[0], clean_frames[1], clean_frames[0], clean_frames[1]]
-        wave_frames = [clean_frames[0], clean_frames[2], clean_frames[3], clean_frames[2]]
+    if omit_gifs:
+        for stale_gif in (idle_gif_path, wave_gif_path):
+            if stale_gif.exists() or stale_gif.is_symlink():
+                stale_gif.unlink()
+    else:
+        gif_frames_src = (
+            canonical_frames_256
+            if gif_size == 256
+            else [normalize_cell_frame(cell, target_size=gif_size) for cell in despilled_cells]
+        )
+        idle_frames = [gif_frames_src[0], gif_frames_src[1], gif_frames_src[0], gif_frames_src[1]]
+        wave_frames = [gif_frames_src[0], gif_frames_src[2], gif_frames_src[3], gif_frames_src[2]]
         save_transparent_gif(idle_frames, idle_gif_path, duration_ms=260)
         save_transparent_gif(wave_frames, wave_gif_path, duration_ms=200)
-
-    cutout_path = output_dir / "cutout-256.png"
-    clean_frames[0].save(cutout_path, format="PNG", optimize=True)
 
     # Copy blobster-design.json into output_dir if compiling into a fresh target directory
     dest_design = output_dir / "blobster-design.json"

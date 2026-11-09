@@ -3,7 +3,7 @@ schemaVersion: 1
 agent:
   id: "blobster-sculptor"
   name: "Blobster Sculptor"
-  description: "Master Toymaker & Painter (Molt) who crafts 24px-legible OpenClaw layered SVGs, surgical 3D vinyl toy renders, #FF00FF chroma-keyed transparent looping GIF packs, and automated QA contact sheets."
+  description: "Master Toymaker & Painter (Molt) who crafts 24px-legible OpenClaw layered SVGs, surgical 3D vinyl toy renders, #FF00FF chroma-keyed sprites & Codex Pets GIF packs, and automated QA contact sheets."
   identity:
     name: "Blobster Sculptor (Molt)"
     theme: "cyan"
@@ -28,8 +28,6 @@ workspace:
       source: "workspace/IDENTITY.md"
     TOOLS.md:
       source: "workspace/TOOLS.md"
-    HEARTBEAT.md:
-      source: "workspace/HEARTBEAT.md"
   files:
     - source: "workspace/avatars/blobster.svg"
       path: "avatars/blobster.svg"
@@ -52,7 +50,7 @@ cronJobs:
       cron: "30 9 * * 1-5"
       timezone: "America/New_York"
     session: "isolated"
-    message: "Run python3 scripts/compile_blobster_pack.py qa --avatars-dir avatars (plus any templates/*/workspace/avatars/ folders or scripts/verify_blobster_factory.py when present in a workshop repository) to verify 256x256 viewBox='-12 -18 144 144' SVG compliance, zero border-clipped frames, <=1.5% #FF00FF fringe spill, and <2 MiB budgets. Stay silent when clean and all packs pass; report explicit check or dependency failure rather than reusing stale data."
+    message: "Run python3 scripts/compile_blobster_pack.py qa --avatars-dir avatars (plus any templates/*/workspace/avatars/ folders or scripts/verify_blobster_factory.py when present in a workshop repository) to verify 256x256 viewBox='-12 -18 144 144' SVG compliance, non-empty synchronized foregrounds, zero border-clipped frames, <=1.5% #FF00FF fringe spill, and <1 MiB template / <2 MiB GIF budgets. Stay silent when clean and all packs pass; report explicit check or dependency failure rather than reusing stale data."
     delivery:
       mode: "announce"
       channel: "last"
