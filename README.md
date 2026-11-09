@@ -8,7 +8,7 @@
   <p>
     <img alt="OpenClaw Template Schema: v1" src="https://img.shields.io/badge/OpenClaw%20Template%20Schema-v1-4CC38A?style=flat-square&labelColor=171F1B">
     <img alt="Core Builder Duo: Smith + Molt" src="https://img.shields.io/badge/builder%20duo-Smith%20%2B%20Molt-E6A23C?style=flat-square&labelColor=171F1B">
-    <img alt="Avatar Pack: Tier 1 SVG + 3D GIF & Tier 2 Pet Rig" src="https://img.shields.io/badge/avatar%20pack-24px%20SVG%20%2B%203D%20GIF-38BDF8?style=flat-square&labelColor=171F1B">
+    <img alt="Avatar Pack: Tier 1 24px SVG + 3D Vinyl GIF Pack" src="https://img.shields.io/badge/avatar%20pack-24px%20SVG%20%2B%203D%20GIF-38BDF8?style=flat-square&labelColor=171F1B">
     <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-24583C?style=flat-square&labelColor=171F1B">
   </p>
 
@@ -86,12 +86,12 @@ Every OpenClaw agent needs two halves that fit together cleanly:
 
 ## Two-Tier Blobster Pack Architecture
 
-Every character built in the workshop follows a structured two-tier visual pipeline (`scripts/compile_blobster_pack.py`):
+Every character built in the workshop ships with the **Tier 1 · Fast Pack** compiled by `scripts/compile_blobster_pack.py` (`svg`, `tier1`, `gifs`, `qa`), with **Tier 2** documented as the downstream desktop-pet rig specification:
 
-| Tier | Target Use Case | Generated Artifacts | Budget & QA Gates |
+| Tier | Status & Target Use Case | Artifacts | Budget & QA Gates |
 | --- | --- | --- | --- |
-| **Tier 1 · Fast Pack** *(Default)* | Every OpenClaw Agent Template & ClawHub listing | 1. `avatars/blobster-design.json` + `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"`)<br>2. `avatars/hero-512.png` (`512×512` 3D studio vinyl render)<br>3. `avatars/sprite-2x2.png` (`512×512` single-frame despilled `2×2` sheet) + `avatars/cutout-256.png`<br>4. Hydrated `blobster-idle.gif` & `blobster-wave.gif` (`compile_blobster_pack.py gifs`) + external `qa-contact-sheet.png` | Fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes at `(45,32)` & `(75,32)`), empty `back` layer, `<= 24` custom vector shapes, `0` border-clip px, `<= 1.5%` `#FF00FF` spill, `< 2 MiB` per file |
-| **Tier 2 · Full Pet Rig** *(Optional `--tier2`)* | Desktop / Sidebar interactive pet hosts | 3-sheet `4×4` `#FF00FF` animation pack (`16` states, `73` frames) compiled into a `1536×2288` RGBA `sprite.png` + `manifest.json` (`sprite_version: 2`) | `256×286` per cell (`6×8` grid) + turnaround & expression sheets |
+| **Tier 1 · Fast Pack** *(Shipped in `compile_blobster_pack.py`)* | Every OpenClaw Agent Template & ClawHub listing | 1. `avatars/blobster-design.json` + `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"`)<br>2. `avatars/hero-512.png` (`512×512` 3D studio vinyl render)<br>3. `avatars/sprite-2x2.png` (`512×512` single-frame despilled `2×2` sheet) + `avatars/cutout-256.png`<br>4. Hydrated `blobster-idle.gif` & `blobster-wave.gif` (`compile_blobster_pack.py gifs`) + external `qa-contact-sheet.png` | Fixed OpenClaw lobster silhouette (`BODY`, `LEFT`, `RIGHT`, eyes at `(45,32)` & `(75,32)`), empty `back` layer, `<= 24` custom vector shapes, `0` SVG & raster border-clip px, `<= 1.5%` `#FF00FF` spill, `< 2 MiB` per file |
+| **Tier 2 · Full Pet Rig** *(Roadmap / Downstream Spec — not in `compile_blobster_pack.py` v1)* | External desktop / sidebar interactive pet hosts | 6 `2×2` `#FF00FF` key-pose sheets + 3 reference sheets (`73` populated frames) targeting a `1536×2288` RGBA `sprite.png` + `manifest.json` (`sprite_version: 2`) | `192×208` per cell (`8×11` grid) + turnaround & expression reference sheets |
 
 ---
 

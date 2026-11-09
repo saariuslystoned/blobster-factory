@@ -1,6 +1,6 @@
 ---
 name: sculpt-blobster
-description: Design, surgically refine, compile, and QA-verify an OpenClaw Blobster visual pack — Tier 1 Fast Pack (24px layered SVG + 512x512 3D vinyl hero PNG + 2x2 #FF00FF chroma-key looping GIFs + automated dark/light QA contact sheet) and optional Tier 2 73-frame sprite_version 2 pet rig.
+description: Design, surgically refine, compile, and QA-verify an OpenClaw Blobster Tier 1 visual pack (24px layered SVG + 512x512 3D vinyl hero PNG + 2x2 #FF00FF chroma-key looping GIFs + automated dark/light QA contact sheet).
 ---
 
 # Sculpt Blobster (`sculpt-blobster`)
@@ -74,6 +74,6 @@ When an existing hero or `2×2` sheet is 90% right and needs a targeted fix:
    - Confirm **`0` border-clipped pixels** across `cutout-256.png` and all GIF frames.
    - Confirm **`<= 1.5%` `#FF00FF` residual fringe spill** and `< 2 MiB` per shipped file.
 
-## Tier 2: Optional Extended Pet Rig (`sprite_version: 2`)
+## Tier 2: Downstream Extended Pet Rig Specification (Roadmap — Not in `compile_blobster_pack.py` v1)
 
-When an agent is promoted to a desktop/sidebar interactive pet, generate the 3-sheet `4×4` `#FF00FF` animation pack (`16` states, `73` frames) and compile the `1536×2288` RGBA `sprite.png` + `manifest.json` (`sprite_version: 2`).
+When a locked Tier 1 character is later promoted to an external desktop/sidebar interactive pet host (`sprite_version: 2`), design 3 reference sheets (hero, 4-angle turnaround, 6-state expression grid) plus 6 `2×2` `#FF00FF` pose sheets targeting the external `1536×2288` (`8×11` × `192×208`, `73`-frame) atlas pipeline (`compile_blobster_pack.py` v1 implements `svg`, `tier1`, `gifs`, and `qa` only).

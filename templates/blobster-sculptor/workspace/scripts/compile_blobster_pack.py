@@ -917,6 +917,76 @@ def _infer_pack_id(avatars_dir: Path) -> str:
     return resolved.name or "blobster"
 
 
+def _count_svg_viewbox_overflow_shapes(svg_text: str) -> int:
+    """Count visible non-defs SVG shapes whose transformed geometry extends past the viewBox."""
+    root = ET.fromstring(svg_text)
+    vb_parts = [float(x) for x in root.attrib.get("viewBox", "-12 -18 144 144").split()]
+    vb_x, vb_y, vb_w, vb_h = vb_parts if len(vb_parts) == 4 else (-12.0, -18.0, 144.0, 144.0)
+    min_x, max_x = vb_x, vb_x + vb_w
+    min_y, max_y = vb_y, vb_y + vb_h
+    overflow_shapes = 0
+
+    def shape_subpaths(elem: ET.Element, tag: str) -> list[list[tuple[float, float]]]:
+        a = elem.attrib
+        if tag == "path":
+            return [pts for pts, _ in _parse_svg_path_subpaths(a.get("d", "")) if pts]
+        if tag == "circle":
+            cx, cy, r = float(a.get("cx", 0)), float(a.get("cy", 0)), float(a.get("r", 0))
+            return [_sample_ellipse_pts(cx, cy, r, r)] if r > 0 else []
+        if tag == "ellipse":
+            cx, cy = float(a.get("cx", 0)), float(a.get("cy", 0))
+            rx, ry = float(a.get("rx", 0)), float(a.get("ry", 0))
+            return [_sample_ellipse_pts(cx, cy, rx, ry)] if rx > 0 and ry > 0 else []
+        if tag == "rect":
+            x, y = float(a.get("x", 0)), float(a.get("y", 0))
+            w, h = float(a.get("width", 0)), float(a.get("height", 0))
+            rx_raw, ry_raw = a.get("rx"), a.get("ry")
+            rx = float(rx_raw) if rx_raw is not None else (float(ry_raw) if ry_raw is not None else 0.0)
+            ry = float(ry_raw) if ry_raw is not None else rx
+            return [_sample_rect_pts(x, y, w, h, rx, ry)] if w > 0 and h > 0 else []
+        if tag == "line":
+            return [[(float(a.get("x1", 0)), float(a.get("y1", 0))), (float(a.get("x2", 0)), float(a.get("y2", 0)))]]
+        if tag in ("polyline", "polygon"):
+            nums = [float(n) for n in NUMBER_RE.findall(a.get("points", ""))]
+            pts = [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
+            return [pts] if pts else []
+        return []
+
+    def walk(elem: ET.Element, mat: Matrix2D, inherited: dict[str, str], clipped_to_body: bool) -> None:
+        nonlocal overflow_shapes
+        tag = elem.tag.split("}")[-1]
+        if tag in ("metadata", "title", "desc", "defs", "clipPath"):
+            return
+        style = dict(inherited)
+        for k in ("fill", "stroke", "stroke-width"):
+            if k in elem.attrib:
+                style[k] = elem.attrib[k]
+        cur_mat = _mat_mul(mat, _parse_transform(elem.attrib["transform"])) if "transform" in elem.attrib else mat
+        is_body_clipped = clipped_to_body or (elem.attrib.get("clip-path") == "url(#blobster-body-clip)")
+        if tag == "g":
+            for child in elem:
+                walk(child, cur_mat, style, is_body_clipped)
+        elif tag in SHAPE_TAGS and not is_body_clipped:
+            stroke_str = style.get("stroke", "none")
+            has_stroke = bool(stroke_str and stroke_str != "none")
+            pad = (float(style.get("stroke-width", "1.0")) * math.hypot(cur_mat[0], cur_mat[1]) / 2.0) if has_stroke else 0.0
+            out = False
+            for pts in shape_subpaths(elem, tag):
+                for px, py in pts:
+                    tx, ty = _mat_apply(cur_mat, px, py)
+                    if tx - pad < min_x - 1e-6 or tx + pad > max_x + 1e-6 or ty - pad < min_y - 1e-6 or ty + pad > max_y + 1e-6:
+                        out = True
+                        break
+                if out:
+                    break
+            if out:
+                overflow_shapes += 1
+
+    for child in root:
+        walk(child, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), {}, False)
+    return overflow_shapes
+
+
 def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, Any]:
     """Run deterministic QA checks on an OpenClaw Blobster avatars/ directory."""
     _require_pillow()
@@ -936,8 +1006,13 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
             agent_name = str(d_obj.get("name", agent_name))
             if d_obj.get("layers", {}).get("back", "") != "":
                 errors.append("blobster-design.json layer 'back' must be empty")
+            render_blobster_svg(d_obj)
         except Exception as exc:
             errors.append(f"Invalid blobster-design.json: {exc}")
+
+    frame_metrics: dict[str, Any] = {}
+    max_border_clip = 0
+    max_spill = 0.0
 
     total_svg_shapes = 0
     custom_svg_shapes = 0
@@ -949,7 +1024,8 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         if svg_bytes > OPENCLAW_AVATAR_MAX_BYTES:
             errors.append(f"blobster.svg ({svg_bytes}B) exceeds 2 MiB")
         try:
-            root = ET.fromstring(svg_path.read_text(encoding="utf-8"))
+            svg_raw_text = svg_path.read_text(encoding="utf-8")
+            root = ET.fromstring(svg_raw_text)
             if root.attrib.get("viewBox") != "-12 -18 144 144":
                 errors.append("blobster.svg viewBox must be '-12 -18 144 144'")
             if root.attrib.get("width") != "256" or root.attrib.get("height") != "256":
@@ -967,6 +1043,14 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
                 errors.append(
                     f"blobster.svg has {custom_svg_shapes} custom vector shapes (exceeds {MAX_CUSTOM_SVG_SHAPES} 24px legibility cap)"
                 )
+            m_svg = analyze_frame_qa(rasterize_blobster_svg(svg_raw_text, out_size=256, supersample=4))
+            frame_metrics["blobster.svg"] = m_svg
+            max_border_clip = max(max_border_clip, m_svg["borderClipPixels"])
+            overflow_cnt = _count_svg_viewbox_overflow_shapes(svg_raw_text)
+            if overflow_cnt > 0:
+                errors.append(
+                    f"blobster.svg has {overflow_cnt} vector shape(s) extending outside viewBox '-12 -18 144 144'"
+                )
         except Exception as exc:
             errors.append(f"Invalid blobster.svg XML: {exc}")
 
@@ -980,10 +1064,6 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         with Image.open(hero_path) as him:
             if him.size != (512, 512):
                 errors.append(f"hero-512.png size {him.size} != (512, 512)")
-
-    frame_metrics: dict[str, Any] = {}
-    max_border_clip = 0
-    max_spill = 0.0
 
     if not cutout_path.is_file():
         errors.append("Missing cutout-256.png")

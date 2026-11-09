@@ -35,10 +35,17 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_PROFILE_BYTES = 256 * 1024
 MAX_PROJECT_ENTRIES = 4096
 
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+SEMVER_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
 AGENT_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
-PACKAGE_NAME_RE = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]{0,62}/)?[a-z][a-z0-9._-]{0,63}$")
+PACKAGE_NAME_RE = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$")
 ENV_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Z_][A-Z0-9_]*\}$")
+WINDOWS_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"|?*]')
+WINDOWS_RESERVED_SEGMENT_RE = re.compile(r"^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$", re.IGNORECASE)
+ALLOWED_BOOTSTRAP_FILE_NAMES = {"AGENTS.md", "SOUL.md", "IDENTITY.md", "TOOLS.md", "HEARTBEAT.md"}
 
 TEXT_SUFFIXES = {
     ".md", ".json", ".yml", ".yaml", ".txt", ".py", ".sh", ".js", ".mjs", ".cjs", ".ts", ".toml", ".svg"
@@ -458,10 +465,29 @@ def _portable_path_key(rel_path: str) -> str:
 
 
 def _is_safe_rel_path(rel_path: str) -> bool:
-    if not rel_path or rel_path.startswith("/") or "\\" in rel_path:
+    if not rel_path or "\\" in rel_path:
         return False
-    parts = rel_path.split("/")
-    return all(part not in ("", ".", "..") for part in parts)
+    if rel_path.startswith("/") or re.match(r"^[A-Za-z]:/", rel_path):
+        return False
+    for part in rel_path.split("/"):
+        if part in ("", ".", ".."):
+            return False
+        if WINDOWS_INVALID_PATH_CHARS_RE.search(part):
+            return False
+        if any(ord(ch) <= 0x1F for ch in part):
+            return False
+        if part.endswith(".") or part.endswith(" "):
+            return False
+        if WINDOWS_RESERVED_SEGMENT_RE.match(part):
+            return False
+    return True
+
+
+def _conflicts_with_template_path(targets: set[str], candidate: str) -> bool:
+    for target in targets:
+        if target == candidate or target.startswith(f"{candidate}/") or candidate.startswith(f"{target}/"):
+            return True
+    return False
 
 
 def _diag(code: str, path: str, message: str) -> dict[str, str]:
@@ -624,6 +650,14 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
     workspace_sources: list[str] = []
     workspace_targets: set[str] = set()
     for bname, bentry in bootstrap_files.items():
+        if bname not in ALLOWED_BOOTSTRAP_FILE_NAMES:
+            diagnostics.append(
+                _diag(
+                    "invalid_bootstrap_file_name",
+                    f"CLAW.md.workspace.bootstrapFiles.{bname}",
+                    f"Unsupported bootstrap file {bname!r}; allowed: {sorted(ALLOWED_BOOTSTRAP_FILE_NAMES)}",
+                )
+            )
         src = bentry.get("source") if isinstance(bentry, dict) else None
         if not isinstance(src, str) or not _is_safe_rel_path(src):
             diagnostics.append(
@@ -655,7 +689,7 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
             )
         else:
             dest_key = _portable_path_key(dst)
-            if dest_key == _portable_path_key("BOOTSTRAP.md"):
+            if _conflicts_with_template_path({_portable_path_key("BOOTSTRAP.md")}, dest_key):
                 diagnostics.append(
                     _diag(
                         "invalid_workspace_dest",
@@ -663,12 +697,12 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
                         "BOOTSTRAP.md uses the seed-once lifecycle and cannot be a managed workspace.files destination.",
                     )
                 )
-            elif dest_key in workspace_targets:
+            elif _conflicts_with_template_path(workspace_targets, dest_key):
                 diagnostics.append(
                     _diag(
                         "duplicate_workspace_dest",
                         f"CLAW.md.workspace.files[{idx}].path",
-                        f"Workspace destination {dst!r} is declared more than once.",
+                        f"Workspace destination {dst!r} collides with an existing destination.",
                     )
                 )
             workspace_targets.add(dest_key)
@@ -678,6 +712,32 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
                 _diag("project_invalid", f"CLAW.md.workspace.files[{idx}].source", "Cannot map package.json")
             )
         workspace_sources.append(src)
+
+    packages_cfg = manifest.get("packages") or []
+    if not isinstance(packages_cfg, list):
+        diagnostics.append(_diag("invalid_packages", "CLAW.md.packages", "packages must be a list"))
+    else:
+        seen_pkg_keys: set[str] = set()
+        for idx, pentry in enumerate(packages_cfg):
+            ppath = f"CLAW.md.packages[{idx}]"
+            if not isinstance(pentry, dict):
+                diagnostics.append(_diag("invalid_package_entry", ppath, "Each package dependency must be a mapping"))
+                continue
+            pkind = pentry.get("kind")
+            psource = pentry.get("source")
+            pref = pentry.get("ref")
+            pver = pentry.get("version")
+            if pkind not in ("skill", "plugin") or psource != "clawhub":
+                diagnostics.append(_diag("invalid_package_entry", ppath, "Package must use kind skill|plugin and source clawhub"))
+            if not isinstance(pref, str) or not PACKAGE_NAME_RE.match(pref):
+                diagnostics.append(_diag("invalid_package_ref", f"{ppath}.ref", f"Invalid ClawHub package ref: {pref!r}"))
+            if not isinstance(pver, str) or not SEMVER_RE.match(pver):
+                diagnostics.append(_diag("invalid_package_version", f"{ppath}.version", f"Version must be exact SemVer: {pver!r}"))
+            if isinstance(pkind, str) and isinstance(psource, str) and isinstance(pref, str):
+                pkey = f"{pkind}:{psource}:{pref.lower()}"
+                if pkey in seen_pkg_keys:
+                    diagnostics.append(_diag("duplicate_package_ref", ppath, f"Duplicate package dependency: {pref!r}"))
+                seen_pkg_keys.add(pkey)
 
     identity_cfg = agent_cfg.get("identity") if isinstance(agent_cfg, dict) else None
     if isinstance(identity_cfg, dict):
@@ -865,12 +925,18 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
                             "profiles/openclaw.yml must declare a bounded, non-empty agent.tools.allow list.",
                         )
                     )
-                elif any(not isinstance(t, str) or "*" in t for t in allow_list):
+                elif any(
+                    not isinstance(t, str)
+                    or not t.strip()
+                    or any(ch in t for ch in "*?[]{}")
+                    or t.strip() in ("group:plugins", "bundle-mcp")
+                    for t in allow_list
+                ):
                     diagnostics.append(
                         _diag(
                             "wildcard_tool_forbidden",
                             "profiles/openclaw.yml.agent.tools.allow",
-                            "Wildcard ('*') tool grants are forbidden in agent.tools.allow.",
+                            "Wildcard or unbounded ('*', '?', '[]', '{}', 'group:plugins', 'bundle-mcp') tool grants are forbidden in agent.tools.allow.",
                         )
                     )
                 fs_cfg = tools_cfg.get("fs")

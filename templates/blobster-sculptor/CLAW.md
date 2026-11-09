@@ -16,7 +16,7 @@ categories:
 metadata:
   factory.archetype: "C5 · Blueprint Toymaker & Painter"
   factory.nickname: "Molt"
-  factory.tier: "tier-1-and-tier-2"
+  factory.tier: "tier-1"
   factory.companion: "blobster-smith"
 workspace:
   bootstrapFiles:
