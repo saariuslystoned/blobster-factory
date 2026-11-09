@@ -40,25 +40,34 @@ When an existing hero or `2×2` sheet is 90% right and needs a targeted fix:
 
 ## Tier 1: Compile & Run Deterministic Visual QA
 
-1. **Author `templates/<id>/workspace/avatars/blobster-design.json`** (`version: 1`, `palette` 6-digit hex colors, 5 allowed SVG fragment layers).
-2. **Compile the Pack + Emit QA Contact Sheet** (use `--omit-gifs` for Git-tracked `templates/<id>/workspace/avatars/` so Git tracks single-frame `sprite-2x2.png` + `cutout-256.png`, and keep `--qa-out` outside `templates/<id>/workspace/avatars/` so `CLAW.md` maintains zero unlisted files):
+`scripts/compile_blobster_pack.py` is bundled directly in this workspace (`svg` uses Python 3 stdlib only; `tier1`, `gifs`, and `qa` require `Pillow>=10.0`).
+
+0. **Runtime Preflight (`check` / `setup`)**:
+   ```bash
+   # Check: verify Python 3 + Pillow before raster/GIF compilation or QA
+   python3 -c "import PIL; print('ok')"
+   # Setup (only if missing):
+   python3 -m pip install "Pillow>=10.0"
+   ```
+1. **Author `<avatars-dir>/blobster-design.json`** (`version: 1`, `palette` 6-digit hex colors, 5 allowed SVG fragment layers — e.g. `avatars/blobster-design.json` in a standalone workspace or `templates/<id>/workspace/avatars/blobster-design.json` in a multi-template workshop repo).
+2. **Compile the Pack + Emit QA Contact Sheet** (use `--omit-gifs` for Git-tracked template `avatars/` folders so Git tracks single-frame `sprite-2x2.png` + `cutout-256.png`, and keep `--qa-out` in a `work/` or `proof/` path outside any `templates/<id>/` package root so `CLAW.md` maintains zero unlisted files):
    ```bash
    python3 scripts/compile_blobster_pack.py tier1 \
-     --design templates/<id>/workspace/avatars/blobster-design.json \
-     --hero <work-dir>/hero.png \
-     --sheet <work-dir>/chromakey-2x2.png \
-     --out-dir templates/<id>/workspace/avatars \
+     --design <avatars-dir>/blobster-design.json \
+     --hero work/hero.png \
+     --sheet work/chromakey-2x2.png \
+     --out-dir <avatars-dir> \
      --omit-gifs \
-     --qa-out <proof-dir>/<id>-qa-contact-sheet.png
+     --qa-out work/<id>-qa-contact-sheet.png
 
    # Hydrate blobster-idle.gif & blobster-wave.gif from sprite-2x2.png into dist/avatars/<id>/:
-   python3 scripts/compile_blobster_pack.py gifs --avatars-dir templates/<id>/workspace/avatars
+   python3 scripts/compile_blobster_pack.py gifs --avatars-dir <avatars-dir>
    ```
-   Or audit an existing avatar directory without recompiling assets:
+   Or audit an existing avatar directory (such as the standalone `avatars` folder) without recompiling assets:
    ```bash
    python3 scripts/compile_blobster_pack.py qa \
-     --avatars-dir templates/<id>/workspace/avatars \
-     --out <proof-dir>/<id>-qa-contact-sheet.png
+     --avatars-dir avatars \
+     --out work/qa-contact-sheet.png
    ```
 3. **Inspect `<id>-qa-contact-sheet.png` Directly (`view_image`)**:
    - Confirm **`24px` chat pill** + `4×` pixel loupe silhouette legibility on both Dark (`#0D1117`) and Light (`#F8FAFC`) panels.

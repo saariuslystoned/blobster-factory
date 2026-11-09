@@ -39,6 +39,8 @@ workspace:
       path: "avatars/sprite-2x2.png"
     - source: "workspace/avatars/cutout-256.png"
       path: "avatars/cutout-256.png"
+    - source: "workspace/scripts/lint_claw_template.py"
+      path: "scripts/lint_claw_template.py"
     - source: "workspace/skills/forge-template/SKILL.md"
       path: "skills/forge-template/SKILL.md"
 cronJobs:
@@ -48,7 +50,7 @@ cronJobs:
       cron: "0 9 * * 1"
       timezone: "America/New_York"
     session: "isolated"
-    message: "Audit any OpenClaw Agent Templates under templates/*/ (running python3 scripts/lint_claw_template.py --json and python3 scripts/verify_blobster_factory.py when present in the workspace, or validating package.json, CLAW.md, and profiles/openclaw.yml directly against skills/forge-template/SKILL.md in a standalone workspace). Stay silent when clean or when no local templates exist yet; only announce actionable lint or asset violations, and report explicit check failure rather than reusing stale data."
+    message: "Run python3 scripts/lint_claw_template.py --json --allow-empty (and python3 scripts/verify_blobster_factory.py when present in a workshop repository) to audit any OpenClaw Agent Templates under templates/*/. Stay silent when clean or when no local templates exist yet; only announce actionable lint or asset violations, and report explicit check failure rather than reusing stale data."
     delivery:
       mode: "announce"
       channel: "last"

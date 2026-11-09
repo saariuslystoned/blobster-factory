@@ -2,9 +2,8 @@
 
 On each scheduled heartbeat or weekly audit (`forge-manifest-audit`):
 
-1. Scan `templates/*/` in the workspace for OpenClaw Agent Template packages.
-2. When `scripts/lint_claw_template.py` and `scripts/verify_blobster_factory.py` exist in the workspace, run `python3 scripts/lint_claw_template.py --json` and `python3 scripts/verify_blobster_factory.py`; in a standalone installed workspace, validate `package.json`, `CLAW.md`, and `profiles/openclaw.yml` directly against `skills/forge-template/SKILL.md`:
+1. Run the bundled template linter `python3 scripts/lint_claw_template.py --json --allow-empty` against `templates/*/` (and run `python3 scripts/verify_blobster_factory.py` when present in a workshop repository):
    - `package.json` compliance (`openclaw.template === "CLAW.md"`, zero `scripts`, exact semver).
-   - `CLAW.md` schema, zero unlisted/excluded files (`excludedPaths == []`), secret/private-path scrub, and avatar `< 2 MiB` bounds.
+   - `CLAW.md` schema, 5-field cron ranges/steps/IANA timezones, zero unlisted/excluded files (`excludedPaths == []`), credential-file/secret/private-path scrub, and avatar `< 2 MiB` bounds.
    - `profiles/openclaw.yml` bounded tool allowlists (`workspaceOnly: true`) and the 4 safety habits (`AGENTS.md` draft-first + untrusted input boundary, quiet-on-clean + honest cron reporting).
-3. Stay silent when clean (or when no local `templates/*/` exist yet) and all templates pass with zero issues. Only announce when a template fails validation; if a verifier command itself errors out, report explicit check failure rather than reusing stale results.
+2. Stay silent when clean (or when no local `templates/*/` exist yet) and all templates pass with zero issues. Only announce when a template fails validation; if a verifier command itself errors out, report explicit check failure rather than reusing stale results.

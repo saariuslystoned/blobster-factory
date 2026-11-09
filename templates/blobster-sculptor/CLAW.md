@@ -41,6 +41,8 @@ workspace:
       path: "avatars/sprite-2x2.png"
     - source: "workspace/avatars/cutout-256.png"
       path: "avatars/cutout-256.png"
+    - source: "workspace/scripts/compile_blobster_pack.py"
+      path: "scripts/compile_blobster_pack.py"
     - source: "workspace/skills/sculpt-blobster/SKILL.md"
       path: "skills/sculpt-blobster/SKILL.md"
 cronJobs:
@@ -50,7 +52,7 @@ cronJobs:
       cron: "30 9 * * 1-5"
       timezone: "America/New_York"
     session: "isolated"
-    message: "Audit Blobster avatar packs in avatars/ and any templates/*/workspace/avatars/ folders (running python3 scripts/verify_blobster_factory.py when present in the workspace, or auditing blobster.svg, hero-512.png, cutout-256.png, and sprite-2x2.png directly against skills/sculpt-blobster/SKILL.md in a standalone workspace) for 256x256 viewBox='-12 -18 144 144' SVG compliance, zero border-clipped frames, <=1.5% #FF00FF fringe spill, and <2 MiB budgets. Stay silent when clean and all packs pass; report explicit check failure rather than reusing stale data."
+    message: "Run python3 scripts/compile_blobster_pack.py qa --avatars-dir avatars (plus any templates/*/workspace/avatars/ folders or scripts/verify_blobster_factory.py when present in a workshop repository) to verify 256x256 viewBox='-12 -18 144 144' SVG compliance, zero border-clipped frames, <=1.5% #FF00FF fringe spill, and <2 MiB budgets. Stay silent when clean and all packs pass; report explicit check or dependency failure rather than reusing stale data."
     delivery:
       mode: "announce"
       channel: "last"

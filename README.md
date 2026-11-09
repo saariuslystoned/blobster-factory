@@ -131,22 +131,22 @@ blobster-factory/
 │   ├── banner-light.webp             # 1600x900 (16:9) Specimen Drawer Workbench hero banner
 │   └── social-preview.png            # 1280x640 (2:1) GitHub Social Preview (< 1 MiB)
 ├── scripts/
-│   ├── compile_blobster_pack.py      # OpenClaw SVG + #FF00FF 2x2 GIF compiler + dark/light QA contact sheet
-│   ├── lint_claw_template.py         # Zero-exclusion OpenClaw schema, secret scrub & trust-habit linter
+│   ├── compile_blobster_pack.py      # Workshop entrypoint -> canonical sculptor pack/GIF/QA compiler
+│   ├── lint_claw_template.py         # Workshop entrypoint -> canonical smith schema/secret/trust linter
 │   └── verify_blobster_factory.py    # End-to-end template linter, avatar QA, and GitHub asset verifier
 ├── skills/
 │   └── blobster-factory/SKILL.md     # Portable skill for agent harnesses
 └── templates/
-    ├── blobster-smith/               # C1 · Anvil Forgemaster (OpenClaw Agent Template)
+    ├── blobster-smith/               # C1 · Anvil Forgemaster (standalone OpenClaw Agent Template)
     │   ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } }
-    │   ├── CLAW.md                   # schemaVersion: 1 manifest
+    │   ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/lint_claw_template.py)
     │   ├── profiles/openclaw.yml     # Bounded coding tool allowlist + sandbox + heartbeat
-    │   └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, HEARTBEAT.md, avatars/, skills/
-    └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (OpenClaw Agent Template)
+    │   └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, HEARTBEAT.md, avatars/, scripts/, skills/
+    └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (standalone OpenClaw Agent Template)
         ├── package.json
-        ├── CLAW.md
+        ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/compile_blobster_pack.py)
         ├── profiles/openclaw.yml
-        └── workspace/
+        └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, HEARTBEAT.md, avatars/, scripts/, skills/
 ```
 
 ---

@@ -89,11 +89,12 @@ Before finishing any template, confirm these 4 habits are explicitly present:
 
 ## Step 3: Lint & Verify Before Handoff
 
-Always run the deterministic template linter and factory verifier before presenting the result:
+Always run the bundled deterministic template linter before presenting the result:
 
 ```bash
 python3 scripts/lint_claw_template.py templates/<agent-id>
-python3 scripts/verify_blobster_factory.py
+# When running inside the blobster-factory workshop repo:
+test ! -f scripts/verify_blobster_factory.py || python3 scripts/verify_blobster_factory.py
 # When the OpenClaw CLI is installed locally:
 openclaw templates validate templates/<agent-id>
 ```
