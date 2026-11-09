@@ -1,0 +1,2091 @@
+#!/usr/bin/env python3
+"""Blobster Factory — OpenClaw Blobster SVG, Tier 1 Fast Pack, QA Contact Sheet & Sprite Compiler.
+
+Compiles and validates:
+1. OpenClaw-compliant `256x256` (`viewBox="-12 -18 144 144"`) layered SVG avatars (`avatars/blobster.svg`)
+   that strictly match `src/agents/blobster-generation.ts` geometry and `24px` silhouette legibility
+   (the single live avatar displayed inside OpenClaw chat today).
+2. Tier 1 Fast Pack (`tier1`) for GitHub/ClawHub READMEs, showcase cards, and external desktop-pet apps
+   such as Codex Pets:
+   - `512x512` 3D hero PNG (`avatars/hero-512.png`, `< 1 MiB` template managed-file budget)
+   - `2x2` `#FF00FF` chroma-key animation sheet -> single-frame `512x512` transparent `avatars/sprite-2x2.png`,
+     `256x256` `avatars/cutout-256.png` (`< 1 MiB` each), and looping `avatars/blobster-idle.gif` &
+     `avatars/blobster-wave.gif` (`< 2 MiB`; use `--omit-gifs` for single-frame-only Git trees)
+   - Optional `--qa-out <path>` dark/light QA contact sheet (`24px`, `64px`, `256px` + `#FF00FF` spill & border-clip check)
+3. GIF Hydration (`gifs`):
+   - Deterministically slices single-frame `avatars/sprite-2x2.png` into `blobster-idle.gif` and `blobster-wave.gif`
+     without AI regeneration (into `dist/avatars/<id>/` by default or `--out-dir` / `--in-place`).
+4. Standalone Visual QA (`qa`):
+   - Audits any `avatars/` directory for non-empty foregrounds, `blobster-design.json` <-> `blobster.svg` sync,
+     `#FF00FF` chroma-key fringe spill (interior & alpha-edge), border clipping, SVG shape count, and
+     `< 1 MiB` template managed-file / `< 2 MiB` GIF byte budgets, emitting `qa-contact-sheet.png` outside the template tree.
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import math
+import re
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+
+    _HAS_PILLOW = True
+except ImportError:  # pragma: no cover
+    Image = ImageDraw = ImageFont = None  # type: ignore[assignment]
+    _HAS_PILLOW = False
+
+
+def _require_pillow() -> None:
+    if not _HAS_PILLOW:
+        raise RuntimeError(
+            'Pillow is required for raster/GIF pack commands; install with: python3 -m pip install "Pillow>=10.0"'
+        )
+
+# Exact OpenClaw Blobster geometry from src/agents/blobster-generation.ts (MIT © 2026 OpenClaw Foundation)
+OPENCLAW_LICENSE = """MIT License
+
+Copyright (c) 2026 OpenClaw Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE."""
+
+BODY_PATH = (
+    "M60 8 C32 8 16 32 16 52 C16 72 30 90 44 95 L44 104 L54 104 L54 96 "
+    "C58 97.5 62 97.5 66 96 L66 104 L76 104 L76 95 C90 90 104 72 104 52 "
+    "C104 32 88 8 60 8 Z"
+)
+LEFT_CLAW_PATH = "M20 42 C5 37 0 47 5 57 C10 67 20 62 25 52 C28 45 25 42 20 42 Z"
+RIGHT_CLAW_PATH = "M100 42 C115 37 120 47 115 57 C110 67 100 62 95 52 C92 45 95 42 100 42 Z"
+
+LAYERS = ("back", "left_prop", "right_prop", "shell_overlay", "accessory")
+HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+SLUG_ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ALLOWED_TAGS = {"g", "path", "circle", "ellipse", "rect", "line", "polyline", "polygon"}
+SHAPE_TAGS = {"path", "circle", "ellipse", "rect", "line", "polyline", "polygon"}
+NUMERIC_ATTRS = {
+    "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r", "rx", "ry",
+    "width", "height", "stroke-width", "stroke-miterlimit", "stroke-dashoffset",
+}
+ENUM_ATTRS = {
+    "stroke-linecap": {"butt", "round", "square"},
+    "stroke-linejoin": {"miter", "round", "bevel"},
+    "fill-rule": {"nonzero", "evenodd"},
+    "clip-rule": {"nonzero", "evenodd"},
+}
+NUMBER_RE = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
+NUMBER_EXACT_RE = re.compile(r"^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$")
+TRANSFORM_RE = re.compile(r"^(?:(?:translate|scale|rotate)\([\s,0-9eE.+-]+\)\s*)+$")
+TRANSFORM_CALL_RE = re.compile(r"(translate|scale|rotate)\(([^)]*)\)")
+PATH_TOKEN_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
+OPENCLAW_AVATAR_MAX_BYTES = 2 * 1024 * 1024
+OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES = 1024 * 1024
+BASE_TEMPLATE_SHAPE_COUNT = 10  # 2 antennae + 2 claws + 1 body + 1 highlight + 4 eye circles
+MAX_CUSTOM_SVG_SHAPES = 24
+
+
+def escape_xml(value: str) -> str:
+    for ch in value:
+        code = ord(ch)
+        if (
+            (code < 0x20 and code not in (0x09, 0x0A, 0x0D))
+            or (0xD800 <= code <= 0xDFFF)
+            or code in (0xFFFE, 0xFFFF)
+        ):
+            raise ValueError("Invalid XML text")
+    return (
+        value.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def validate_svg_attr(name: str, value: str) -> bool:
+    if name in ("fill", "stroke"):
+        return value == "none" or bool(HEX_COLOR_RE.match(value))
+    if name == "class":
+        return bool(re.match(r"^[A-Za-z0-9_ -]+$", value))
+    if name in ENUM_ATTRS:
+        return value in ENUM_ATTRS[name]
+    nums = NUMBER_RE.findall(value)
+    if any(not math.isfinite(float(n)) or abs(float(n)) > 2000 for n in nums):
+        return False
+    if name in NUMERIC_ATTRS:
+        if not NUMBER_EXACT_RE.match(value):
+            return False
+        if name in ("r", "rx", "ry", "width", "height", "stroke-width", "stroke-miterlimit") and float(value) < 0.0:
+            return False
+        return True
+    if name in ("opacity", "fill-opacity", "stroke-opacity"):
+        return bool(NUMBER_EXACT_RE.match(value)) and 0.0 <= float(value) <= 1.0
+    if name == "d":
+        stripped = NUMBER_RE.sub("", value)
+        return len(nums) > 0 and bool(re.match(r"^[MmZzLlHhVvCcSsQqTtAa\s,]*$", stripped))
+    if name in ("points", "stroke-dasharray"):
+        if value == "none" and name == "stroke-dasharray":
+            return True
+        stripped = NUMBER_RE.sub("", value)
+        if not (len(nums) > 0 and bool(re.match(r"^[\s,]*$", stripped))):
+            return False
+        if name == "stroke-dasharray" and any(float(n) < 0.0 for n in nums):
+            return False
+        return True
+    if name == "transform":
+        return bool(TRANSFORM_RE.match(value))
+    return False
+
+
+def sanitize_svg_fragment(source: str) -> str:
+    if len(source) > 12_000:
+        raise ValueError("SVG layer fragment exceeds 12000-character limit")
+    if not source.strip():
+        return ""
+    if "<!" in source or "<?" in source:
+        raise ValueError("SVG declarations are not allowed")
+    wrapped = f'<svg xmlns="http://www.w3.org/2000/svg">{source}</svg>'
+    try:
+        root = ET.fromstring(wrapped)
+    except ET.ParseError as exc:
+        raise ValueError(f"Invalid SVG fragment: {exc}") from exc
+    if root.text and root.text.strip():
+        raise ValueError("SVG text content is not allowed")
+    count = 0
+
+    def render_node(elem: ET.Element, depth: int) -> str:
+        nonlocal count
+        if (elem.text and elem.text.strip()) or (elem.tail and elem.tail.strip()):
+            raise ValueError("SVG text content is not allowed")
+        if "}" in elem.tag:
+            ns_uri, tag = elem.tag[1:].split("}", 1)
+            if ns_uri != "http://www.w3.org/2000/svg":
+                raise ValueError(f"Unsupported SVG namespace: {ns_uri}")
+        else:
+            tag = elem.tag
+        if tag not in ALLOWED_TAGS:
+            raise ValueError(f"Unsupported SVG element: {tag}")
+        count += 1
+        if count > 128 or depth > 12:
+            raise ValueError("SVG fragment is too complex")
+        attrs_list: list[str] = []
+        for k, v in elem.attrib.items():
+            if "}" in k or ":" in k:
+                raise ValueError(f"Unsupported namespaced SVG attribute: {k}")
+            attr_name = k
+            if not validate_svg_attr(attr_name, v):
+                raise ValueError(f"Unsupported or invalid SVG attribute: {attr_name}={v!r}")
+            if attr_name == "d":
+                _parse_svg_path_subpaths(v)
+            attrs_list.append(f' {attr_name}="{escape_xml(v)}"')
+        children_str = "".join(render_node(child, depth + 1) for child in list(elem))
+        return f"<{tag}{''.join(attrs_list)}>{children_str}</{tag}>"
+
+    return "".join(render_node(child, 0) for child in list(root))
+
+
+def render_blobster_svg(design: dict[str, Any]) -> str:
+    if not isinstance(design, dict):
+        raise ValueError("Blobster design must be a JSON object")
+    unknown_keys = set(design.keys()) - {"version", "id", "name", "description", "palette", "layers"}
+    if unknown_keys:
+        raise ValueError(f"Unsupported Blobster design keys: {sorted(unknown_keys)}")
+    if type(design.get("version")) is not int or design.get("version") != 1:
+        raise ValueError("Blobster design version must be integer 1")
+    design_id = design.get("id")
+    if not isinstance(design_id, str) or not SLUG_ID_RE.match(design_id) or len(design_id) > 80:
+        raise ValueError(f"Invalid Blobster id: {design_id!r}")
+    raw_name = design.get("name")
+    raw_desc = design.get("description")
+    if not isinstance(raw_name, str) or not isinstance(raw_desc, str):
+        raise ValueError("Blobster design name and description must be strings")
+    if len(raw_name) > 120 or len(raw_desc) > 1000:
+        raise ValueError("Blobster design name (<= 120) or description (<= 1000) exceeds length limit")
+    name = raw_name.strip()
+    description = raw_desc.strip()
+    if not name or not description:
+        raise ValueError("Blobster design requires non-empty name and description")
+    palette = design.get("palette")
+    if not isinstance(palette, dict) or set(palette.keys()) != {"shell", "claw", "glint"}:
+        raise ValueError("Blobster design palette must contain exact keys: shell, claw, glint")
+    for key in ("shell", "claw", "glint"):
+        val = palette.get(key)
+        if not isinstance(val, str) or not HEX_COLOR_RE.match(val):
+            raise ValueError(f"Invalid palette.{key}: {val!r}")
+    raw_layers = design.get("layers")
+    if not isinstance(raw_layers, dict):
+        raise ValueError("Blobster design layers must be an object")
+    extra_layers = set(raw_layers.keys()) - set(LAYERS)
+    if extra_layers:
+        raise ValueError(f"Unsupported Blobster layers: {sorted(extra_layers)}")
+    for layer in LAYERS:
+        layer_val = raw_layers.get(layer, "")
+        if not isinstance(layer_val, str):
+            raise ValueError(f"Blobster layer {layer!r} must be a string")
+    if raw_layers.get("back", "") != "":
+        raise ValueError("Blobster layer 'back' must be an empty string (no background allowed)")
+    rendered_layers = {
+        layer: sanitize_svg_fragment(raw_layers.get(layer, ""))
+        for layer in LAYERS
+    }
+    shell = palette["shell"]
+    claw = palette["claw"]
+    glint = palette["glint"]
+    svg_text = f"""<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="-12 -18 144 144" role="img">
+<metadata>{escape_xml(OPENCLAW_LICENSE)}</metadata>
+<title>{escape_xml(name)}</title><desc>{escape_xml(description)}</desc>
+<defs><clipPath id="blobster-body-clip"><path d="{BODY_PATH}"/></clipPath></defs>
+<g stroke="{shell}" stroke-width="4" stroke-linecap="round" fill="none"><path d="M46 14 Q38 4 31 7"/><path d="M74 14 Q82 4 89 7"/></g>
+<g>{rendered_layers["left_prop"]}<path d="{LEFT_CLAW_PATH}" fill="{claw}"/></g>
+<g>{rendered_layers["right_prop"]}<path d="{RIGHT_CLAW_PATH}" fill="{claw}"/></g>
+<path d="{BODY_PATH}" fill="{shell}"/>
+<g clip-path="url(#blobster-body-clip)">{rendered_layers["shell_overlay"]}</g>
+<ellipse cx="48" cy="28" rx="20" ry="11" fill="#ffffff" opacity="0.1"/>
+<g>{rendered_layers["accessory"]}</g>
+<g><circle cx="45" cy="32" r="5.5" fill="#0a1014"/><circle cx="75" cy="32" r="5.5" fill="#0a1014"/><circle cx="46.5" cy="30.5" r="2.2" fill="{glint}"/><circle cx="76.5" cy="30.5" r="2.2" fill="{glint}"/></g>
+</svg>
+"""
+    validate_compiled_blobster_svg(svg_text)
+    return svg_text
+
+
+# ---------------------------------------------------------------------------
+# Pure-Pillow Supersampled SVG Rasterizer (for 24px / 64px / 256px QA sheets)
+# ---------------------------------------------------------------------------
+
+Matrix2D = tuple[float, float, float, float, float, float]  # (a, b, c, d, e, f)
+
+
+def _mat_mul(m1: Matrix2D, m2: Matrix2D) -> Matrix2D:
+    a1, b1, c1, d1, e1, f1 = m1
+    a2, b2, c2, d2, e2, f2 = m2
+    return (
+        a1 * a2 + c1 * b2,
+        b1 * a2 + d1 * b2,
+        a1 * c2 + c1 * d2,
+        b1 * c2 + d1 * d2,
+        a1 * e2 + c1 * f2 + e1,
+        b1 * e2 + d1 * f2 + f1,
+    )
+
+
+def _mat_apply(m: Matrix2D, x: float, y: float) -> tuple[float, float]:
+    a, b, c, d, e, f = m
+    return (a * x + c * y + e, b * x + d * y + f)
+
+
+def _parse_transform(expr: str) -> Matrix2D:
+    mat: Matrix2D = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+    for fn, raw_args in TRANSFORM_CALL_RE.findall(expr):
+        nums = [float(x) for x in NUMBER_RE.findall(raw_args)]
+        if fn == "translate":
+            tx = nums[0] if len(nums) >= 1 else 0.0
+            ty = nums[1] if len(nums) >= 2 else 0.0
+            sub: Matrix2D = (1.0, 0.0, 0.0, 1.0, tx, ty)
+        elif fn == "scale":
+            sx = nums[0] if len(nums) >= 1 else 1.0
+            sy = nums[1] if len(nums) >= 2 else sx
+            sub = (sx, 0.0, 0.0, sy, 0.0, 0.0)
+        elif fn == "rotate":
+            ang = math.radians(nums[0] if len(nums) >= 1 else 0.0)
+            ca, sa = math.cos(ang), math.sin(ang)
+            if len(nums) >= 3:
+                cx, cy = nums[1], nums[2]
+                sub = _mat_mul(
+                    (1.0, 0.0, 0.0, 1.0, cx, cy),
+                    _mat_mul((ca, sa, -sa, ca, 0.0, 0.0), (1.0, 0.0, 0.0, 1.0, -cx, -cy)),
+                )
+            else:
+                sub = (ca, sa, -sa, ca, 0.0, 0.0)
+        else:
+            sub = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+        mat = _mat_mul(mat, sub)
+    return mat
+
+
+def _sample_svg_arc(
+    x1: float,
+    y1: float,
+    rx: float,
+    ry: float,
+    phi_deg: float,
+    large_arc: int,
+    sweep: int,
+    x2: float,
+    y2: float,
+    steps: int = 24,
+) -> list[tuple[float, float]]:
+    if abs(x1 - x2) < 1e-7 and abs(y1 - y2) < 1e-7:
+        return []
+    rx, ry = abs(rx), abs(ry)
+    if rx < 1e-7 or ry < 1e-7:
+        return [(x2, y2)]
+
+    phi = math.radians(phi_deg % 360.0)
+    c_phi, s_phi = math.cos(phi), math.sin(phi)
+    dx2, dy2 = (x1 - x2) / 2.0, (y1 - y2) / 2.0
+    x1p = c_phi * dx2 + s_phi * dy2
+    y1p = -s_phi * dx2 + c_phi * dy2
+
+    lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
+    if lam > 1.0:
+        scale = math.sqrt(lam)
+        rx *= scale
+        ry *= scale
+
+    num = max(0.0, rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p)
+    den = max(1e-12, rx * rx * y1p * y1p + ry * ry * x1p * x1p)
+    rad = math.sqrt(num / den)
+    if bool(large_arc) == bool(sweep):
+        rad = -rad
+
+    cxp = rad * (rx * y1p / ry)
+    cyp = rad * (-ry * x1p / rx)
+    cx = c_phi * cxp - s_phi * cyp + (x1 + x2) / 2.0
+    cy = s_phi * cxp + c_phi * cyp + (y1 + y2) / 2.0
+
+    def vec_angle(ux: float, uy: float, vx: float, vy: float) -> float:
+        dot = ux * vx + uy * vy
+        mag = max(1e-12, math.hypot(ux, uy) * math.hypot(vx, vy))
+        val = max(-1.0, min(1.0, dot / mag))
+        ang = math.acos(val)
+        return -ang if (ux * vy - uy * vx) < 0 else ang
+
+    ux, uy = (x1p - cxp) / rx, (y1p - cyp) / ry
+    vx, vy = (-x1p - cxp) / rx, (-y1p - cyp) / ry
+    theta1 = vec_angle(1.0, 0.0, ux, uy)
+    dtheta = vec_angle(ux, uy, vx, vy)
+    if not sweep and dtheta > 0:
+        dtheta -= 2.0 * math.pi
+    elif sweep and dtheta < 0:
+        dtheta += 2.0 * math.pi
+
+    pts: list[tuple[float, float]] = []
+    for i in range(1, steps + 1):
+        t = theta1 + dtheta * (i / steps)
+        px = cx + c_phi * rx * math.cos(t) - s_phi * ry * math.sin(t)
+        py = cy + s_phi * rx * math.cos(t) + c_phi * ry * math.sin(t)
+        pts.append((px, py))
+    return pts
+
+
+def _parse_svg_path_subpaths(d_str: str, curve_steps: int = 20) -> list[tuple[list[tuple[float, float]], bool]]:
+    tokens = PATH_TOKEN_RE.findall(d_str)
+    if not tokens:
+        return []
+    if tokens[0] not in ("M", "m"):
+        raise ValueError("SVG path data must start with an M or m moveto command")
+    subpaths: list[tuple[list[tuple[float, float]], bool]] = []
+    cur_pts: list[tuple[float, float]] = []
+    cx, cy = 0.0, 0.0
+    sx, sy = 0.0, 0.0
+    prev_cmd = ""
+    last_c2: tuple[float, float] | None = None
+    last_q1: tuple[float, float] | None = None
+    idx = 0
+    cmd = ""
+
+    def next_float() -> float:
+        nonlocal idx
+        if idx >= len(tokens) or tokens[idx].isalpha():
+            raise ValueError(f"Incomplete SVG path command {cmd!r}")
+        val = float(tokens[idx])
+        idx += 1
+        return val
+
+    while idx < len(tokens):
+        tok = tokens[idx]
+        if tok.isalpha():
+            cmd = tok
+            idx += 1
+        elif not cmd:
+            raise ValueError("SVG path coordinates missing active command")
+
+        if cmd in ("M", "m"):
+            if cur_pts:
+                subpaths.append((cur_pts, False))
+                cur_pts = []
+            x, y = next_float(), next_float()
+            if cmd == "m":
+                cx, cy = cx + x, cy + y
+            else:
+                cx, cy = x, y
+            sx, sy = cx, cy
+            cur_pts = [(cx, cy)]
+            prev_cmd = cmd
+            last_c2 = None
+            last_q1 = None
+            cmd = "l" if cmd == "m" else "L"
+        elif cmd in ("Z", "z"):
+            if cur_pts:
+                cur_pts.append((sx, sy))
+                subpaths.append((cur_pts, True))
+                cur_pts = []
+            cx, cy = sx, sy
+            prev_cmd = cmd
+            last_c2 = None
+            last_q1 = None
+            cmd = ""
+        elif cmd in ("L", "l"):
+            x, y = next_float(), next_float()
+            cx, cy = (cx + x, cy + y) if cmd == "l" else (x, y)
+            cur_pts.append((cx, cy))
+            prev_cmd = cmd
+            last_c2 = None
+            last_q1 = None
+        elif cmd in ("H", "h"):
+            x = next_float()
+            cx = cx + x if cmd == "h" else x
+            cur_pts.append((cx, cy))
+            prev_cmd = cmd
+            last_c2 = None
+            last_q1 = None
+        elif cmd in ("V", "v"):
+            y = next_float()
+            cy = cy + y if cmd == "v" else y
+            cur_pts.append((cx, cy))
+            prev_cmd = cmd
+            last_c2 = None
+            last_q1 = None
+        elif cmd in ("C", "c"):
+            x1, y1 = next_float(), next_float()
+            x2, y2 = next_float(), next_float()
+            x, y = next_float(), next_float()
+            if cmd == "c":
+                x1, y1 = cx + x1, cy + y1
+                x2, y2 = cx + x2, cy + y2
+                x, y = cx + x, cy + y
+            p0x, p0y = cx, cy
+            for step in range(1, curve_steps + 1):
+                t = step / curve_steps
+                mt = 1.0 - t
+                px = mt**3 * p0x + 3 * mt**2 * t * x1 + 3 * mt * t**2 * x2 + t**3 * x
+                py = mt**3 * p0y + 3 * mt**2 * t * y1 + 3 * mt * t**2 * y2 + t**3 * y
+                cur_pts.append((px, py))
+            cx, cy = x, y
+            last_c2 = (x2, y2)
+            last_q1 = None
+            prev_cmd = cmd
+        elif cmd in ("S", "s"):
+            x2, y2 = next_float(), next_float()
+            x, y = next_float(), next_float()
+            if cmd == "s":
+                x2, y2 = cx + x2, cy + y2
+                x, y = cx + x, cy + y
+            if prev_cmd in ("C", "c", "S", "s") and last_c2 is not None:
+                x1, y1 = 2.0 * cx - last_c2[0], 2.0 * cy - last_c2[1]
+            else:
+                x1, y1 = cx, cy
+            p0x, p0y = cx, cy
+            for step in range(1, curve_steps + 1):
+                t = step / curve_steps
+                mt = 1.0 - t
+                px = mt**3 * p0x + 3 * mt**2 * t * x1 + 3 * mt * t**2 * x2 + t**3 * x
+                py = mt**3 * p0y + 3 * mt**2 * t * y1 + 3 * mt * t**2 * y2 + t**3 * y
+                cur_pts.append((px, py))
+            cx, cy = x, y
+            last_c2 = (x2, y2)
+            last_q1 = None
+            prev_cmd = cmd
+        elif cmd in ("Q", "q"):
+            x1, y1 = next_float(), next_float()
+            x, y = next_float(), next_float()
+            if cmd == "q":
+                x1, y1 = cx + x1, cy + y1
+                x, y = cx + x, cy + y
+            p0x, p0y = cx, cy
+            for step in range(1, curve_steps + 1):
+                t = step / curve_steps
+                mt = 1.0 - t
+                px = mt * mt * p0x + 2 * mt * t * x1 + t * t * x
+                py = mt * mt * p0y + 2 * mt * t * y1 + t * t * y
+                cur_pts.append((px, py))
+            cx, cy = x, y
+            last_q1 = (x1, y1)
+            last_c2 = None
+            prev_cmd = cmd
+        elif cmd in ("T", "t"):
+            x, y = next_float(), next_float()
+            if cmd == "t":
+                x, y = cx + x, cy + y
+            if prev_cmd in ("Q", "q", "T", "t") and last_q1 is not None:
+                x1, y1 = 2.0 * cx - last_q1[0], 2.0 * cy - last_q1[1]
+            else:
+                x1, y1 = cx, cy
+            p0x, p0y = cx, cy
+            for step in range(1, curve_steps + 1):
+                t = step / curve_steps
+                mt = 1.0 - t
+                px = mt * mt * p0x + 2 * mt * t * x1 + t * t * x
+                py = mt * mt * p0y + 2 * mt * t * y1 + t * t * y
+                cur_pts.append((px, py))
+            cx, cy = x, y
+            last_q1 = (x1, y1)
+            last_c2 = None
+            prev_cmd = cmd
+        elif cmd in ("A", "a"):
+            rx, ry = next_float(), next_float()
+            rot = next_float()
+            large_arc = int(round(next_float()))
+            sweep = int(round(next_float()))
+            x, y = next_float(), next_float()
+            if cmd == "a":
+                x, y = cx + x, cy + y
+            cur_pts.extend(_sample_svg_arc(cx, cy, rx, ry, rot, large_arc, sweep, x, y, steps=curve_steps))
+            cx, cy = x, y
+            last_c2 = None
+            last_q1 = None
+            prev_cmd = cmd
+        else:
+            break
+
+    if cur_pts:
+        subpaths.append((cur_pts, False))
+    return subpaths
+
+
+def _hex_to_rgba(color_str: str | None, alpha_mult: float = 1.0) -> tuple[int, int, int, int] | None:
+    if not color_str or color_str == "none":
+        return None
+    if HEX_COLOR_RE.match(color_str):
+        r = int(color_str[1:3], 16)
+        g = int(color_str[3:5], 16)
+        b = int(color_str[5:7], 16)
+        a = max(0, min(255, int(round(255.0 * alpha_mult))))
+        return (r, g, b, a)
+    return None
+
+
+def _sample_ellipse_pts(cx: float, cy: float, rx: float, ry: float, steps: int = 48) -> list[tuple[float, float]]:
+    pts = [
+        (cx + rx * math.cos(2.0 * math.pi * i / steps), cy + ry * math.sin(2.0 * math.pi * i / steps))
+        for i in range(steps)
+    ]
+    pts.append(pts[0])
+    return pts
+
+
+def _sample_rect_pts(x: float, y: float, w: float, h: float, rx: float, ry: float) -> list[tuple[float, float]]:
+    rx = min(max(0.0, rx), w / 2.0)
+    ry = min(max(0.0, ry), h / 2.0)
+    if rx < 1e-4 or ry < 1e-4:
+        return [(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)]
+    pts: list[tuple[float, float]] = []
+    corners = [
+        (x + w - rx, y + ry, -math.pi / 2.0, 0.0),
+        (x + w - rx, y + h - ry, 0.0, math.pi / 2.0),
+        (x + rx, y + h - ry, math.pi / 2.0, math.pi),
+        (x + rx, y + ry, math.pi, 1.5 * math.pi),
+    ]
+    for ccx, ccy, a0, a1 in corners:
+        for i in range(9):
+            ang = a0 + (a1 - a0) * (i / 8.0)
+            pts.append((ccx + rx * math.cos(ang), ccy + ry * math.sin(ang)))
+    pts.append(pts[0])
+    return pts
+
+
+def _render_fill_mask(
+    ss_px: int,
+    polys: list[list[tuple[float, float]]],
+    fill_rule: str = "nonzero",
+) -> tuple[Image.Image, tuple[int, int]] | None:
+    """Scanline-fill compound subpaths using exact SVG 'nonzero' or 'evenodd' winding rules."""
+    edges: list[tuple[float, float, float, float, int]] = []
+    min_x_f, max_x_f = float("inf"), float("-inf")
+    min_y_f, max_y_f = float("inf"), float("-inf")
+
+    for pts in polys:
+        if len(pts) < 3:
+            continue
+        ring = pts if pts[0] == pts[-1] else [*pts, pts[0]]
+        if len(ring) < 4:
+            continue
+        for px, py in pts:
+            if px < min_x_f:
+                min_x_f = px
+            if px > max_x_f:
+                max_x_f = px
+            if py < min_y_f:
+                min_y_f = py
+            if py > max_y_f:
+                max_y_f = py
+        for i in range(len(ring) - 1):
+            x0, y0 = ring[i]
+            x1, y1 = ring[i + 1]
+            if abs(y1 - y0) < 1e-12:
+                continue
+            if y0 < y1:
+                edges.append((y0, y1, x0, (x1 - x0) / (y1 - y0), 1))
+            else:
+                edges.append((y1, y0, x1, (x0 - x1) / (y0 - y1), -1))
+
+    if not edges:
+        return None
+
+    x0_box = max(0, min(ss_px, math.floor(min_x_f)))
+    x1_box = max(0, min(ss_px, math.ceil(max_x_f)))
+    y0_box = max(0, min(ss_px, math.ceil(min_y_f - 0.5)))
+    y1_box = max(0, min(ss_px, math.ceil(max_y_f - 0.5)))
+    w_box = x1_box - x0_box
+    h_box = y1_box - y0_box
+    if w_box <= 0 or h_box <= 0:
+        return None
+
+    buckets: dict[int, list[tuple[int, float, float, float, int]]] = {}
+    for ymin, ymax, x_at_ymin, inv_slope, direction in edges:
+        r_start = max(y0_box, math.ceil(ymin - 0.5))
+        r_end = min(y1_box, math.ceil(ymax - 0.5))
+        if r_start < r_end:
+            buckets.setdefault(r_start, []).append((r_end, ymin, x_at_ymin, inv_slope, direction))
+
+    buf = bytearray(w_box * h_box)
+    active: list[tuple[int, float, float, float, int]] = []
+    use_evenodd = fill_rule == "evenodd"
+
+    for y in range(y0_box, y1_box):
+        if y in buckets:
+            active.extend(buckets[y])
+        if not active:
+            continue
+        active = [e for e in active if e[0] > y]
+        if not active:
+            continue
+        yc = y + 0.5
+        crossings = sorted(
+            (x_at_ymin + (yc - ymin) * inv_slope, direction)
+            for _, ymin, x_at_ymin, inv_slope, direction in active
+        )
+        row_off = (y - y0_box) * w_box
+        if use_evenodd:
+            for i in range(0, len(crossings) - 1, 2):
+                px0 = max(x0_box, math.ceil(crossings[i][0] - 0.5))
+                px1 = min(x1_box, math.ceil(crossings[i + 1][0] - 0.5))
+                if px1 > px0:
+                    buf[row_off + (px0 - x0_box) : row_off + (px1 - x0_box)] = b"\xff" * (px1 - px0)
+        else:
+            winding = 0
+            x_enter = 0.0
+            for x_c, d_c in crossings:
+                if winding == 0:
+                    x_enter = x_c
+                winding += d_c
+                if winding == 0:
+                    px0 = max(x0_box, math.ceil(x_enter - 0.5))
+                    px1 = min(x1_box, math.ceil(x_c - 0.5))
+                    if px1 > px0:
+                        buf[row_off + (px0 - x0_box) : row_off + (px1 - x0_box)] = b"\xff" * (px1 - px0)
+
+    return Image.frombytes("L", (w_box, h_box), bytes(buf)), (x0_box, y0_box)
+
+
+def _dash_polyline(
+    pts: list[tuple[float, float]],
+    closed: bool,
+    dashes: list[float],
+    dashoffset: float = 0.0,
+) -> list[tuple[list[tuple[float, float]], bool]]:
+    """Slice a polyline into visible dash runs according to SVG stroke-dasharray / stroke-dashoffset."""
+    if len(pts) < 2 or not dashes:
+        return [(pts, closed)] if pts else []
+    pattern = dashes * 2 if (len(dashes) % 2 == 1) else list(dashes)
+    period = sum(pattern)
+    if period <= 1e-9:
+        return [(pts, closed)]
+
+    offset = dashoffset % period
+    pat_idx = 0
+    while offset > pattern[pat_idx] + 1e-12:
+        offset -= pattern[pat_idx]
+        pat_idx = (pat_idx + 1) % len(pattern)
+    rem = pattern[pat_idx] - offset
+    draw_on = (pat_idx % 2) == 0
+
+    runs: list[tuple[list[tuple[float, float]], bool]] = []
+    cur_run: list[tuple[float, float]] = [pts[0]] if draw_on else []
+
+    for i in range(len(pts) - 1):
+        ax, ay = pts[i]
+        bx, by = pts[i + 1]
+        seg_len = math.hypot(bx - ax, by - ay)
+        if seg_len <= 1e-9:
+            continue
+        ux, uy = (bx - ax) / seg_len, (by - ay) / seg_len
+        pos = 0.0
+        while pos < seg_len - 1e-9:
+            while rem <= 1e-12:
+                if draw_on and len(cur_run) >= 1:
+                    runs.append((cur_run, False))
+                    cur_run = []
+                pat_idx = (pat_idx + 1) % len(pattern)
+                draw_on = (pat_idx % 2) == 0
+                rem = pattern[pat_idx]
+                if draw_on:
+                    cur_run = [(ax + ux * pos, ay + uy * pos)]
+            step = min(rem, seg_len - pos)
+            pos += step
+            rem -= step
+            nx, ny = ax + ux * pos, ay + uy * pos
+            if draw_on:
+                if not cur_run:
+                    cur_run = [(ax + ux * (pos - step), ay + uy * (pos - step))]
+                cur_run.append((nx, ny))
+            if rem <= 1e-12:
+                if draw_on and len(cur_run) >= 1:
+                    runs.append((cur_run, False))
+                    cur_run = []
+                pat_idx = (pat_idx + 1) % len(pattern)
+                draw_on = (pat_idx % 2) == 0
+                rem = pattern[pat_idx]
+                if draw_on and pos < seg_len - 1e-9:
+                    cur_run = [(nx, ny)]
+
+    if draw_on and len(cur_run) >= 1:
+        runs.append((cur_run, False))
+    return runs
+
+
+def _extend_square_caps(tpts: list[tuple[float, float]], half_w: float) -> list[tuple[float, float]]:
+    """Extend open polyline endpoints outward along their unit tangents for stroke-linecap='square'."""
+    if len(tpts) < 2 or half_w <= 0.0:
+        return tpts
+    out = list(tpts)
+    for i in range(1, len(out)):
+        dx, dy = out[i][0] - out[0][0], out[i][1] - out[0][1]
+        mag = math.hypot(dx, dy)
+        if mag > 1e-6:
+            out[0] = (out[0][0] - (dx / mag) * half_w, out[0][1] - (dy / mag) * half_w)
+            break
+    for i in range(len(out) - 2, -1, -1):
+        dx, dy = out[-1][0] - out[i][0], out[-1][1] - out[i][1]
+        mag = math.hypot(dx, dy)
+        if mag > 1e-6:
+            out[-1] = (out[-1][0] + (dx / mag) * half_w, out[-1][1] + (dy / mag) * half_w)
+            break
+    return out
+
+
+def rasterize_blobster_svg(svg_text: str, out_size: int = 256, supersample: int = 4) -> Image.Image:
+    """Rasterize a validated OpenClaw Blobster SVG to an RGBA Image using pure Pillow."""
+    _require_pillow()
+    root = ET.fromstring(svg_text)
+    vb_parts = [float(x) for x in root.attrib.get("viewBox", "-12 -18 144 144").split()]
+    vb_x, vb_y, vb_w, vb_h = vb_parts if len(vb_parts) == 4 else (-12.0, -18.0, 144.0, 144.0)
+
+    ss_px = max(64, out_size * supersample)
+    sx = ss_px / vb_w
+    sy = ss_px / vb_h
+    root_mat: Matrix2D = (sx, 0.0, 0.0, sy, -vb_x * sx, -vb_y * sy)
+
+    def extract_subpaths(elem: ET.Element, tag: str) -> list[tuple[list[tuple[float, float]], bool]]:
+        a = elem.attrib
+        if tag == "path":
+            return _parse_svg_path_subpaths(a.get("d", ""))
+        if tag == "circle":
+            cx, cy, r = float(a.get("cx", 0)), float(a.get("cy", 0)), float(a.get("r", 0))
+            return [(_sample_ellipse_pts(cx, cy, r, r), True)] if r > 0 else []
+        if tag == "ellipse":
+            cx, cy = float(a.get("cx", 0)), float(a.get("cy", 0))
+            rx, ry = float(a.get("rx", 0)), float(a.get("ry", 0))
+            return [(_sample_ellipse_pts(cx, cy, rx, ry), True)] if rx > 0 and ry > 0 else []
+        if tag == "rect":
+            x, y = float(a.get("x", 0)), float(a.get("y", 0))
+            w, h = float(a.get("width", 0)), float(a.get("height", 0))
+            rx_raw, ry_raw = a.get("rx"), a.get("ry")
+            rx = float(rx_raw) if rx_raw is not None else (float(ry_raw) if ry_raw is not None else 0.0)
+            ry = float(ry_raw) if ry_raw is not None else rx
+            return [(_sample_rect_pts(x, y, w, h, rx, ry), True)] if w > 0 and h > 0 else []
+        if tag == "line":
+            x1, y1 = float(a.get("x1", 0)), float(a.get("y1", 0))
+            x2, y2 = float(a.get("x2", 0)), float(a.get("y2", 0))
+            return [([(x1, y1), (x2, y2)], False)]
+        if tag in ("polyline", "polygon"):
+            nums = [float(n) for n in NUMBER_RE.findall(a.get("points", ""))]
+            pts = [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
+            if tag == "polygon" and pts:
+                pts.append(pts[0])
+                return [(pts, True)]
+            return [(pts, False)] if pts else []
+        return []
+
+    # Collect clipPath masks in supersampled coordinates (honoring clip-rule & transforms)
+    clip_masks: dict[str, Image.Image] = {}
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1]
+        if tag == "clipPath" and elem.attrib.get("id"):
+            cid = elem.attrib["id"]
+            mask = Image.new("L", (ss_px, ss_px), 0)
+            base_clip_mat = (
+                _mat_mul(root_mat, _parse_transform(elem.attrib["transform"]))
+                if "transform" in elem.attrib
+                else root_mat
+            )
+            inherited_clip_rule = elem.attrib.get("clip-rule", "nonzero")
+            for child in elem:
+                ctag = child.tag.split("}")[-1]
+                if ctag in SHAPE_TAGS and ctag != "line":
+                    c_mat = (
+                        _mat_mul(base_clip_mat, _parse_transform(child.attrib["transform"]))
+                        if "transform" in child.attrib
+                        else base_clip_mat
+                    )
+                    c_rule = child.attrib.get("clip-rule", inherited_clip_rule)
+                    c_polys = [
+                        [_mat_apply(c_mat, px, py) for px, py in pts]
+                        for pts, _ in extract_subpaths(child, ctag)
+                        if len(pts) >= 3
+                    ]
+                    fill_res = _render_fill_mask(ss_px, c_polys, c_rule)
+                    if fill_res is not None:
+                        sub_mask, (mx, my) = fill_res
+                        mask.paste(255, (mx, my), sub_mask)
+            clip_masks[cid] = mask
+
+    inheritable_attrs = (
+        "fill",
+        "stroke",
+        "stroke-width",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "stroke-miterlimit",
+        "stroke-dasharray",
+        "stroke-dashoffset",
+        "fill-rule",
+        "clip-rule",
+        "fill-opacity",
+        "stroke-opacity",
+    )
+
+    def draw_node(target: Image.Image, elem: ET.Element, mat: Matrix2D, inherited: dict[str, str]) -> None:
+        tag = elem.tag.split("}")[-1]
+        if tag in ("metadata", "title", "desc", "defs", "clipPath"):
+            return
+
+        elem_opacity = float(elem.attrib.get("opacity", "1.0"))
+        if elem_opacity <= 0.0:
+            return
+
+        style = dict(inherited)
+        for k in inheritable_attrs:
+            if k in elem.attrib:
+                style[k] = elem.attrib[k]
+
+        cur_mat = _mat_mul(mat, _parse_transform(elem.attrib["transform"])) if "transform" in elem.attrib else mat
+
+        clip_attr = elem.attrib.get("clip-path", "")
+        clip_id = clip_attr[5:-1] if clip_attr.startswith("url(#") and clip_attr.endswith(")") else None
+        needs_offscreen = (clip_id in clip_masks) or (elem_opacity < 1.0)
+        dest_img = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0)) if needs_offscreen else target
+
+        if tag == "g":
+            for child in elem:
+                draw_node(dest_img, child, cur_mat, style)
+        elif tag in SHAPE_TAGS:
+            subpaths = extract_subpaths(elem, tag)
+            default_fill = "none" if tag == "line" else "#000000"
+            fill_str = style.get("fill", default_fill)
+            stroke_str = style.get("stroke", "none")
+            fill_op = float(style.get("fill-opacity", "1.0"))
+            stroke_op = float(style.get("stroke-opacity", "1.0"))
+            fill_rgba = _hex_to_rgba(fill_str, fill_op)
+            stroke_rgba = _hex_to_rgba(stroke_str, stroke_op)
+            fill_rule = style.get("fill-rule", "nonzero")
+            sw_units = float(style.get("stroke-width", "1.0"))
+            mat_scale = (math.hypot(cur_mat[0], cur_mat[1]) + math.hypot(cur_mat[2], cur_mat[3])) / 2.0
+            sw_px = max(1, int(round(sw_units * mat_scale)))
+            linecap = style.get("stroke-linecap", "butt")
+            dasharray_raw = style.get("stroke-dasharray", "none")
+            dashoffset_units = float(style.get("stroke-dashoffset", "0.0"))
+            dashes = (
+                [float(n) for n in NUMBER_RE.findall(dasharray_raw)]
+                if dasharray_raw and dasharray_raw != "none"
+                else []
+            )
+
+            if fill_rgba and tag != "line":
+                fill_polys = [
+                    [_mat_apply(cur_mat, px, py) for px, py in pts]
+                    for pts, _ in subpaths
+                    if len(pts) >= 3
+                ]
+                fill_res = _render_fill_mask(ss_px, fill_polys, fill_rule)
+                if fill_res is not None:
+                    f_mask, (fox, foy) = fill_res
+                    fill_layer = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
+                    fill_layer.paste(Image.new("RGBA", f_mask.size, fill_rgba), (fox, foy), f_mask)
+                    dest_img.alpha_composite(fill_layer)
+
+            if stroke_rgba and sw_units > 0.0:
+                stroke_layer = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
+                sdraw = ImageDraw.Draw(stroke_layer)
+                rad = sw_px / 2.0
+                for pts, closed in subpaths:
+                    stroke_runs = (
+                        _dash_polyline(pts, closed, dashes, dashoffset_units)
+                        if dashes and sum(dashes) > 1e-9
+                        else [(pts, closed)]
+                    )
+                    for r_pts, r_closed in stroke_runs:
+                        tpts = [_mat_apply(cur_mat, px, py) for px, py in r_pts]
+                        if not tpts:
+                            continue
+                        if len(tpts) == 1 or (
+                            len(tpts) == 2
+                            and abs(tpts[0][0] - tpts[1][0]) < 1e-6
+                            and abs(tpts[0][1] - tpts[1][1]) < 1e-6
+                        ):
+                            if linecap == "round":
+                                cx_p, cy_p = tpts[0]
+                                sdraw.ellipse((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
+                            elif linecap == "square":
+                                cx_p, cy_p = tpts[0]
+                                sdraw.rectangle((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
+                            continue
+                        draw_pts = (
+                            _extend_square_caps(tpts, rad)
+                            if (linecap == "square" and not r_closed)
+                            else (tpts + [tpts[1]] if (r_closed and len(tpts) >= 3) else tpts)
+                        )
+                        sdraw.line(draw_pts, fill=stroke_rgba, width=sw_px, joint="curve")
+                        if linecap == "round" and not r_closed:
+                            for cx_p, cy_p in (tpts[0], tpts[-1]):
+                                sdraw.ellipse((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
+                dest_img.alpha_composite(stroke_layer)
+
+        if needs_offscreen:
+            r_ch, g_ch, b_ch, a_ch = dest_img.split()
+            if elem_opacity < 1.0:
+                a_ch = a_ch.point(lambda p, op=elem_opacity: int(round(p * op)))
+            if clip_id in clip_masks:
+                a_ch = Image.composite(a_ch, Image.new("L", (ss_px, ss_px), 0), clip_masks[clip_id])
+            target.alpha_composite(Image.merge("RGBA", (r_ch, g_ch, b_ch, a_ch)))
+
+    canvas = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
+    for child in root:
+        draw_node(canvas, child, root_mat, {})
+
+    if ss_px != out_size:
+        return canvas.resize((out_size, out_size), Image.Resampling.LANCZOS)
+    return canvas
+
+
+# ---------------------------------------------------------------------------
+# Tier 1 Chroma-Key Extraction & GIF Compilation
+# ---------------------------------------------------------------------------
+
+
+def despike_magenta_cell(cell_img: Image.Image) -> Image.Image:
+    """Remove #FF00FF chroma-key background with edge despill."""
+    _require_pillow()
+    rgba = cell_img.convert("RGBA")
+    w, h = rgba.size
+    pixels = rgba.load()
+
+    border_samples: list[tuple[int, int, int]] = []
+    for x in range(w):
+        for y in (0, 1, h - 2, h - 1):
+            r, g, b, _ = pixels[x, y]
+            if r > 140 and b > 140 and g < 120:
+                border_samples.append((r, g, b))
+    for y in range(h):
+        for x in (0, 1, w - 2, w - 1):
+            r, g, b, _ = pixels[x, y]
+            if r > 140 and b > 140 and g < 120:
+                border_samples.append((r, g, b))
+
+    if border_samples:
+        kr = sum(p[0] for p in border_samples) / len(border_samples)
+        kg = sum(p[1] for p in border_samples) / len(border_samples)
+        kb = sum(p[2] for p in border_samples) / len(border_samples)
+    else:
+        kr, kg, kb = 255.0, 0.0, 255.0
+
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            dist = math.sqrt((r - kr) ** 2 + (g - kg) ** 2 + (b - kb) ** 2)
+            magenta_excess = min(r, b) - g
+            if dist < 68 or (magenta_excess > 105 and b > 145 and abs(r - b) < 75):
+                pixels[x, y] = (0, 0, 0, 0)
+            elif dist < 115 or (magenta_excess > 70 and b > 120 and abs(r - b) < 85):
+                factor = max(0.0, min(1.0, (dist - 68.0) / 47.0))
+                new_a = int(a * factor)
+                clamped_b = min(b, int((r + g) * 0.45)) if b > r * 0.7 else b
+                pixels[x, y] = (r, g, clamped_b, new_a)
+
+    return rgba
+
+
+def normalize_cell_frame(cell_rgba: Image.Image, target_size: int = 256, pad_ratio: float = 0.08) -> Image.Image:
+    """Center and scale extracted character bounding box onto a transparent square frame."""
+    alpha = cell_rgba.split()[3]
+    mask = alpha.point(lambda p: 255 if p > 24 else 0)
+    bbox = mask.getbbox()
+    canvas = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))
+    if not bbox:
+        return canvas
+    cropped = cell_rgba.crop(bbox)
+    cw, ch = cropped.size
+    max_dim = int(target_size * (1.0 - 2.0 * pad_ratio))
+    scale = min(max_dim / max(cw, 1), max_dim / max(ch, 1))
+    nw = max(1, int(round(cw * scale)))
+    nh = max(1, int(round(ch * scale)))
+    resized = cropped.resize((nw, nh), Image.Resampling.LANCZOS)
+    ox = (target_size - nw) // 2
+    oy = target_size - int(target_size * pad_ratio) - nh
+    canvas.alpha_composite(resized, (ox, oy))
+    return canvas
+
+
+def encode_transparent_gif_bytes(frames: list[Image.Image], duration_ms: int = 220) -> bytes:
+    """Encode RGBA frames into a clean looping transparent GIF89a byte buffer under 2 MiB."""
+    _require_pillow()
+    pal_frames: list[Image.Image] = []
+    for frame in frames:
+        rgba = frame.convert("RGBA")
+        alpha = rgba.split()[3]
+        rgb = Image.new("RGB", rgba.size, (17, 22, 20))
+        rgb.paste(rgba, mask=alpha)
+        quant = rgb.quantize(colors=255, method=Image.Quantize.FASTOCTREE)
+        mask = Image.eval(alpha, lambda a: 255 if a <= 64 else 0)
+        quant.paste(255, mask)
+        quant.info["transparency"] = 255
+        quant.info["disposal"] = 2
+        pal_frames.append(quant)
+
+    buf = io.BytesIO()
+    pal_frames[0].save(
+        buf,
+        format="GIF",
+        save_all=True,
+        append_images=pal_frames[1:],
+        loop=0,
+        duration=duration_ms,
+        transparency=255,
+        disposal=2,
+        optimize=True,
+    )
+    payload = buf.getvalue()
+    if len(payload) > OPENCLAW_AVATAR_MAX_BYTES:
+        raise ValueError(f"Generated GIF ({len(payload)} bytes) exceeds 2 MiB limit")
+    return payload
+
+
+def save_transparent_gif(frames: list[Image.Image], out_path: Path, duration_ms: int = 220) -> None:
+    """Save RGBA frames as a clean looping transparent GIF89a under 2 MiB."""
+    payload = encode_transparent_gif_bytes(frames, duration_ms=duration_ms)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(payload)
+
+
+def save_sprite_2x2_png(clean_frames: list[Image.Image], out_path: Path) -> None:
+    """Save 4 despilled square RGBA frames into a single-frame 2x2 transparent PNG sheet."""
+    if len(clean_frames) != 4:
+        raise ValueError(f"Expected 4 clean frames for 2x2 sprite sheet, got {len(clean_frames)}")
+    fw, fh = clean_frames[0].size
+    sheet = Image.new("RGBA", (fw * 2, fh * 2), (0, 0, 0, 0))
+    offsets = [(0, 0), (fw, 0), (0, fh), (fw, fh)]
+    for frame, (ox, oy) in zip(clean_frames, offsets):
+        sheet.alpha_composite(frame.convert("RGBA"), (ox, oy))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out_path, format="PNG", optimize=True)
+
+
+def slice_sprite_2x2_png(sprite_path: Path) -> list[Image.Image]:
+    """Slice a single-frame 2x2 transparent RGBA PNG into its 4 square quadrant frames."""
+    _require_pillow()
+    with Image.open(sprite_path) as sim:
+        rgba = sim.convert("RGBA")
+        sw, sh = rgba.size
+        if sw % 2 != 0 or sh % 2 != 0 or sw != sh:
+            raise ValueError(f"sprite-2x2.png must be an even square image, got {sw}x{sh}")
+        cw, ch = sw // 2, sh // 2
+        boxes = [(0, 0, cw, ch), (cw, 0, sw, ch), (0, ch, cw, sh), (cw, ch, sw, sh)]
+        return [rgba.crop(b).copy() for b in boxes]
+
+
+def hydrate_gifs_from_sprite_2x2(
+    avatars_dir: Path,
+    out_dir: Path,
+    idle_duration_ms: int = 260,
+    wave_duration_ms: int = 200,
+) -> dict[str, Any]:
+    """Deterministically materialize blobster-idle.gif and blobster-wave.gif from sprite-2x2.png."""
+    sprite_path = avatars_dir / "sprite-2x2.png"
+    if not sprite_path.is_file():
+        raise FileNotFoundError(f"Missing sprite-2x2.png in {avatars_dir}")
+    clean_frames = slice_sprite_2x2_png(sprite_path)
+    idle_frames = [clean_frames[0], clean_frames[1], clean_frames[0], clean_frames[1]]
+    wave_frames = [clean_frames[0], clean_frames[2], clean_frames[3], clean_frames[2]]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    idle_path = out_dir / "blobster-idle.gif"
+    wave_path = out_dir / "blobster-wave.gif"
+    save_transparent_gif(idle_frames, idle_path, duration_ms=idle_duration_ms)
+    save_transparent_gif(wave_frames, wave_path, duration_ms=wave_duration_ms)
+    return {
+        "ok": True,
+        "avatarsDir": str(avatars_dir.resolve()),
+        "outDir": str(out_dir.resolve()),
+        "idleGif": str(idle_path.resolve()),
+        "idleGifBytes": idle_path.stat().st_size,
+        "waveGif": str(wave_path.resolve()),
+        "waveGifBytes": wave_path.stat().st_size,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Deterministic Pack QA & Contact Sheet Renderer
+# ---------------------------------------------------------------------------
+
+
+def analyze_frame_qa(frame: Image.Image) -> dict[str, Any]:
+    """Measure outer 1px border clipping and residual #FF00FF magenta fringe spill on an RGBA frame."""
+    rgba = frame.convert("RGBA")
+    w, h = rgba.size
+    pixels = rgba.load()
+
+    border_clip_px = 0
+    for x in range(w):
+        if pixels[x, 0][3] > 24:
+            border_clip_px += 1
+        if h > 1 and pixels[x, h - 1][3] > 24:
+            border_clip_px += 1
+    for y in range(1, max(1, h - 1)):
+        if pixels[0, y][3] > 24:
+            border_clip_px += 1
+        if w > 1 and pixels[w - 1, y][3] > 24:
+            border_clip_px += 1
+
+    opaque_px = 0
+    spill_px = 0
+    edge_px = 0
+    edge_spill_px = 0
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a <= 24:
+                continue
+            opaque_px += 1
+            is_edge = (
+                x == 0
+                or y == 0
+                or x == w - 1
+                or y == h - 1
+                or pixels[x - 1, y][3] <= 24
+                or pixels[x + 1, y][3] <= 24
+                or pixels[x, y - 1][3] <= 24
+                or pixels[x, y + 1][3] <= 24
+            )
+            if is_edge:
+                edge_px += 1
+            magenta_excess = min(r, b) - g
+            if magenta_excess > 70 and b > 120 and abs(r - b) < 85:
+                spill_px += 1
+                if is_edge:
+                    edge_spill_px += 1
+
+    spill_pct = round((100.0 * spill_px / max(1, opaque_px)), 3)
+    edge_spill_pct = round((100.0 * edge_spill_px / max(1, edge_px)), 3)
+    return {
+        "width": w,
+        "height": h,
+        "opaquePixels": opaque_px,
+        "edgePixels": edge_px,
+        "borderClipPixels": border_clip_px,
+        "magentaSpillPixels": spill_px,
+        "magentaSpillPct": spill_pct,
+        "edgeMagentaSpillPixels": edge_spill_px,
+        "edgeMagentaSpillPct": edge_spill_pct,
+    }
+
+
+def _extract_gif_rgba_frames_from_bytes(payload: bytes) -> list[Image.Image]:
+    frames: list[Image.Image] = []
+    with Image.open(io.BytesIO(payload)) as gim:
+        n_frames = getattr(gim, "n_frames", 1)
+        for idx in range(n_frames):
+            gim.seek(idx)
+            frames.append(gim.convert("RGBA").copy())
+    return frames
+
+
+def _extract_gif_rgba_frames(gif_path: Path) -> list[Image.Image]:
+    return _extract_gif_rgba_frames_from_bytes(gif_path.read_bytes())
+
+
+def _resolve_pack_gif_streams(avatars_dir: Path) -> tuple[bytes | None, list[Image.Image], bytes | None, list[Image.Image], str]:
+    idle_path = avatars_dir / "blobster-idle.gif"
+    wave_path = avatars_dir / "blobster-wave.gif"
+    sprite_path = avatars_dir / "sprite-2x2.png"
+    if idle_path.is_file() and wave_path.is_file():
+        ib = idle_path.read_bytes()
+        wb = wave_path.read_bytes()
+        return ib, _extract_gif_rgba_frames_from_bytes(ib), wb, _extract_gif_rgba_frames_from_bytes(wb), "disk_gifs"
+    if sprite_path.is_file():
+        quads = slice_sprite_2x2_png(sprite_path)
+        ib = encode_transparent_gif_bytes([quads[0], quads[1], quads[0], quads[1]], duration_ms=260)
+        wb = encode_transparent_gif_bytes([quads[0], quads[2], quads[3], quads[2]], duration_ms=200)
+        return ib, _extract_gif_rgba_frames_from_bytes(ib), wb, _extract_gif_rgba_frames_from_bytes(wb), "sprite_2x2"
+    return None, [], None, [], "missing"
+
+
+def _infer_pack_id(avatars_dir: Path) -> str:
+    design_path = avatars_dir / "blobster-design.json"
+    if design_path.is_file():
+        try:
+            raw_id = str(json.loads(design_path.read_text(encoding="utf-8")).get("id", "")).strip()
+            if raw_id and SLUG_ID_RE.match(raw_id):
+                return raw_id
+        except Exception:
+            pass
+    resolved = avatars_dir.resolve()
+    if resolved.name == "avatars" and resolved.parent.name == "workspace" and resolved.parent.parent.name:
+        return resolved.parent.parent.name
+    if resolved.name == "avatars" and resolved.parent.name:
+        return resolved.parent.name
+    return resolved.name or "blobster"
+
+
+def _count_svg_viewbox_overflow_shapes(svg_text: str, border_inset: float = 144.0 / 256.0) -> int:
+    """Count visible non-defs SVG shapes extending past safe viewBox bounds or clipping away completely."""
+    root = ET.fromstring(svg_text)
+    vb_parts = [float(x) for x in root.attrib.get("viewBox", "-12 -18 144 144").split()]
+    vb_x, vb_y, vb_w, vb_h = vb_parts if len(vb_parts) == 4 else (-12.0, -18.0, 144.0, 144.0)
+    min_x, max_x = vb_x + border_inset, vb_x + vb_w - border_inset
+    min_y, max_y = vb_y + border_inset, vb_y + vb_h - border_inset
+    overflow_shapes = 0
+
+    def shape_subpaths(elem: ET.Element, tag: str) -> list[list[tuple[float, float]]]:
+        a = elem.attrib
+        if tag == "path":
+            return [pts for pts, _ in _parse_svg_path_subpaths(a.get("d", "")) if pts]
+        if tag == "circle":
+            cx, cy, r = float(a.get("cx", 0)), float(a.get("cy", 0)), float(a.get("r", 0))
+            return [_sample_ellipse_pts(cx, cy, r, r)] if r > 0 else [[(cx, cy)]]
+        if tag == "ellipse":
+            cx, cy = float(a.get("cx", 0)), float(a.get("cy", 0))
+            rx, ry = float(a.get("rx", 0)), float(a.get("ry", 0))
+            return [_sample_ellipse_pts(cx, cy, rx, ry)] if rx > 0 and ry > 0 else [[(cx, cy)]]
+        if tag == "rect":
+            x, y = float(a.get("x", 0)), float(a.get("y", 0))
+            w, h = float(a.get("width", 0)), float(a.get("height", 0))
+            rx_raw, ry_raw = a.get("rx"), a.get("ry")
+            rx = float(rx_raw) if rx_raw is not None else (float(ry_raw) if ry_raw is not None else 0.0)
+            ry = float(ry_raw) if ry_raw is not None else rx
+            return [_sample_rect_pts(x, y, w, h, rx, ry)] if w > 0 and h > 0 else [[(x, y)]]
+        if tag == "line":
+            return [[(float(a.get("x1", 0)), float(a.get("y1", 0))), (float(a.get("x2", 0)), float(a.get("y2", 0)))]]
+        if tag in ("polyline", "polygon"):
+            nums = [float(n) for n in NUMBER_RE.findall(a.get("points", ""))]
+            pts = [(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)]
+            return [pts] if pts else []
+        return []
+
+    def walk(elem: ET.Element, mat: Matrix2D, inherited: dict[str, str], clipped_to_body: bool) -> None:
+        nonlocal overflow_shapes
+        tag = elem.tag.split("}")[-1]
+        if tag in ("metadata", "title", "desc", "defs", "clipPath"):
+            return
+        style = dict(inherited)
+        for k in ("fill", "stroke", "stroke-width", "stroke-linecap"):
+            if k in elem.attrib:
+                style[k] = elem.attrib[k]
+        cur_mat = _mat_mul(mat, _parse_transform(elem.attrib["transform"])) if "transform" in elem.attrib else mat
+        is_body_clipped = clipped_to_body or (elem.attrib.get("clip-path") == "url(#blobster-body-clip)")
+        if tag == "g":
+            for child in elem:
+                walk(child, cur_mat, style, is_body_clipped)
+        elif tag in SHAPE_TAGS:
+            stroke_str = style.get("stroke", "none")
+            sw_val = float(style.get("stroke-width", "1.0"))
+            has_stroke = bool(stroke_str and stroke_str != "none" and sw_val > 0.0)
+            max_scale = max(math.hypot(cur_mat[0], cur_mat[1]), math.hypot(cur_mat[2], cur_mat[3]))
+            cap_mult = math.sqrt(2.0) if style.get("stroke-linecap") == "square" else 1.0
+            pad = (sw_val * max_scale / 2.0) * cap_mult if has_stroke else 0.0
+            out = False
+            s_min_x, s_max_x = float("inf"), float("-inf")
+            s_min_y, s_max_y = float("inf"), float("-inf")
+            has_pts = False
+            for pts in shape_subpaths(elem, tag):
+                for px, py in pts:
+                    has_pts = True
+                    tx, ty = _mat_apply(cur_mat, px, py)
+                    s_min_x = min(s_min_x, tx)
+                    s_max_x = max(s_max_x, tx)
+                    s_min_y = min(s_min_y, ty)
+                    s_max_y = max(s_max_y, ty)
+                    edge_pad = 0.0 if is_body_clipped else pad
+                    if (
+                        tx - edge_pad < min_x - 1e-6
+                        or tx + edge_pad > max_x + 1e-6
+                        or ty - edge_pad < min_y - 1e-6
+                        or ty + edge_pad > max_y + 1e-6
+                    ):
+                        out = True
+                        break
+                if out:
+                    break
+            if not out and is_body_clipped and has_pts:
+                # Shapes inside shell_overlay must intersect BODY_PATH bbox (x=16..104, y=8..104)
+                if (
+                    s_max_x + pad < 16.0
+                    or s_min_x - pad > 104.0
+                    or s_max_y + pad < 8.0
+                    or s_min_y - pad > 104.0
+                ):
+                    out = True
+            if out:
+                overflow_shapes += 1
+
+    for child in root:
+        walk(child, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), {}, False)
+    return overflow_shapes
+
+
+def validate_compiled_blobster_svg(svg_text: str) -> dict[str, int]:
+    """Enforce Blobster SVG byte budget, dimensions, <= 24 custom shape cap, non-empty foreground, and safe canvas bounds."""
+    svg_bytes = len(svg_text.encode("utf-8"))
+    if svg_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+        raise ValueError(
+            f"Blobster SVG ({svg_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit"
+        )
+    root = ET.fromstring(svg_text)
+    if root.attrib.get("viewBox") != "-12 -18 144 144":
+        raise ValueError("Blobster SVG viewBox must be '-12 -18 144 144'")
+    if root.attrib.get("width") != "256" or root.attrib.get("height") != "256":
+        raise ValueError("Blobster SVG dimensions must be 256x256")
+    defs_shapes = sum(
+        1
+        for d in root.findall("{http://www.w3.org/2000/svg}defs") + root.findall("defs")
+        for e in d.iter()
+        if e.tag.split("}")[-1] in SHAPE_TAGS
+    )
+    all_shapes = sum(1 for e in root.iter() if e.tag.split("}")[-1] in SHAPE_TAGS)
+    total_svg_shapes = max(0, all_shapes - defs_shapes)
+    custom_svg_shapes = max(0, total_svg_shapes - BASE_TEMPLATE_SHAPE_COUNT)
+    if custom_svg_shapes > MAX_CUSTOM_SVG_SHAPES:
+        raise ValueError(
+            f"Blobster SVG has {custom_svg_shapes} custom vector shapes (exceeds {MAX_CUSTOM_SVG_SHAPES} 24px legibility cap)"
+        )
+    overflow_cnt = _count_svg_viewbox_overflow_shapes(svg_text)
+    if overflow_cnt > 0:
+        raise ValueError(
+            f"Blobster SVG has {overflow_cnt} vector shape(s) extending outside viewBox '-12 -18 144 144' safe bounds or clipping completely"
+        )
+    if _HAS_PILLOW:
+        m_svg = analyze_frame_qa(rasterize_blobster_svg(svg_text, out_size=256, supersample=4))
+        if m_svg["opaquePixels"] <= 0:
+            raise ValueError("Blobster SVG renders to an empty/transparent canvas")
+        if m_svg["borderClipPixels"] > 0:
+            raise ValueError(
+                f"Blobster SVG clips {m_svg['borderClipPixels']} pixel(s) on the outer 1px 256x256 frame boundary"
+            )
+    return {
+        "svgBytes": svg_bytes,
+        "totalSvgShapes": total_svg_shapes,
+        "customSvgShapes": custom_svg_shapes,
+    }
+
+
+def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, Any]:
+    """Run deterministic QA checks on an OpenClaw Blobster avatars/ directory."""
+    _require_pillow()
+    errors: list[str] = []
+    svg_path = avatars_dir / "blobster.svg"
+    design_path = avatars_dir / "blobster-design.json"
+    hero_path = avatars_dir / "hero-512.png"
+    cutout_path = avatars_dir / "cutout-256.png"
+    sprite_path = avatars_dir / "sprite-2x2.png"
+
+    agent_id = _infer_pack_id(avatars_dir)
+    agent_name = agent_id
+    expected_svg_text: str | None = None
+    if design_path.is_file():
+        design_bytes = design_path.stat().st_size
+        if design_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"blobster-design.json ({design_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
+        try:
+            d_obj = json.loads(design_path.read_text(encoding="utf-8"))
+            agent_id = str(d_obj.get("id", agent_id))
+            agent_name = str(d_obj.get("name", agent_name))
+            if d_obj.get("layers", {}).get("back", "") != "":
+                errors.append("blobster-design.json layer 'back' must be empty")
+            expected_svg_text = render_blobster_svg(d_obj)
+        except Exception as exc:
+            errors.append(f"Invalid blobster-design.json: {exc}")
+
+    frame_metrics: dict[str, Any] = {}
+    max_border_clip = 0
+    max_spill = 0.0
+    max_edge_spill = 0.0
+
+    total_svg_shapes = 0
+    custom_svg_shapes = 0
+    svg_bytes = 0
+    if not svg_path.is_file():
+        errors.append("Missing blobster.svg")
+    else:
+        svg_bytes = svg_path.stat().st_size
+        if svg_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"blobster.svg ({svg_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
+        try:
+            svg_raw_text = svg_path.read_text(encoding="utf-8")
+            if expected_svg_text is not None and svg_raw_text.strip() != expected_svg_text.strip():
+                errors.append(
+                    "blobster.svg is out of sync with blobster-design.json (regenerate via 'compile_blobster_pack.py svg' or 'tier1')"
+                )
+            root = ET.fromstring(svg_raw_text)
+            if root.attrib.get("viewBox") != "-12 -18 144 144":
+                errors.append("blobster.svg viewBox must be '-12 -18 144 144'")
+            if root.attrib.get("width") != "256" or root.attrib.get("height") != "256":
+                errors.append("blobster.svg dimensions must be 256x256")
+            defs_shapes = sum(
+                1
+                for d in root.findall("{http://www.w3.org/2000/svg}defs") + root.findall("defs")
+                for e in d.iter()
+                if e.tag.split("}")[-1] in SHAPE_TAGS
+            )
+            all_shapes = sum(1 for e in root.iter() if e.tag.split("}")[-1] in SHAPE_TAGS)
+            total_svg_shapes = max(0, all_shapes - defs_shapes)
+            custom_svg_shapes = max(0, total_svg_shapes - BASE_TEMPLATE_SHAPE_COUNT)
+            if custom_svg_shapes > MAX_CUSTOM_SVG_SHAPES:
+                errors.append(
+                    f"blobster.svg has {custom_svg_shapes} custom vector shapes (exceeds {MAX_CUSTOM_SVG_SHAPES} 24px legibility cap)"
+                )
+            m_svg = analyze_frame_qa(rasterize_blobster_svg(svg_raw_text, out_size=256, supersample=4))
+            frame_metrics["blobster.svg"] = m_svg
+            if m_svg["opaquePixels"] <= 0:
+                errors.append("blobster.svg renders to an empty/transparent canvas")
+            max_border_clip = max(max_border_clip, m_svg["borderClipPixels"])
+            overflow_cnt = _count_svg_viewbox_overflow_shapes(svg_raw_text)
+            if overflow_cnt > 0:
+                errors.append(
+                    f"blobster.svg has {overflow_cnt} vector shape(s) extending outside viewBox '-12 -18 144 144'"
+                )
+        except Exception as exc:
+            errors.append(f"Invalid blobster.svg XML: {exc}")
+
+    hero_bytes = 0
+    if not hero_path.is_file():
+        errors.append("Missing hero-512.png")
+    else:
+        hero_bytes = hero_path.stat().st_size
+        if hero_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"hero-512.png ({hero_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
+        with Image.open(hero_path) as him:
+            if him.size != (512, 512):
+                errors.append(f"hero-512.png size {him.size} != (512, 512)")
+            m_hero = analyze_frame_qa(him)
+            if m_hero["opaquePixels"] <= 0:
+                errors.append("hero-512.png has zero visible foreground pixels")
+
+    cutout_bytes = 0
+    if not cutout_path.is_file():
+        errors.append("Missing cutout-256.png")
+    else:
+        cutout_bytes = cutout_path.stat().st_size
+        if cutout_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"cutout-256.png ({cutout_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
+        with Image.open(cutout_path) as cim:
+            if cim.size != (256, 256):
+                errors.append(f"cutout-256.png size {cim.size} != (256, 256)")
+            m_cut = analyze_frame_qa(cim)
+            frame_metrics["cutout-256.png"] = m_cut
+            if m_cut["opaquePixels"] <= 0:
+                errors.append("cutout-256.png has zero visible foreground pixels")
+            max_border_clip = max(max_border_clip, m_cut["borderClipPixels"])
+            max_spill = max(max_spill, m_cut["magentaSpillPct"])
+            max_edge_spill = max(max_edge_spill, m_cut["edgeMagentaSpillPct"])
+
+    sprite_bytes = 0
+    if sprite_path.is_file():
+        sprite_bytes = sprite_path.stat().st_size
+        if sprite_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
+            errors.append(f"sprite-2x2.png ({sprite_bytes}B) exceeds 1 MiB OpenClaw template managed-file limit")
+        try:
+            with Image.open(sprite_path) as sim:
+                if getattr(sim, "n_frames", 1) != 1:
+                    errors.append("sprite-2x2.png must be a single-frame PNG")
+                if sim.size != (512, 512):
+                    errors.append(f"sprite-2x2.png size {sim.size} != (512, 512)")
+            quads = slice_sprite_2x2_png(sprite_path)
+            for q_idx, q_img in enumerate(quads):
+                qm = analyze_frame_qa(q_img)
+                frame_metrics[f"sprite-2x2.png#q{q_idx}"] = qm
+                if qm["opaquePixels"] <= 0:
+                    errors.append(f"sprite-2x2.png#q{q_idx} has zero visible foreground pixels")
+                max_border_clip = max(max_border_clip, qm["borderClipPixels"])
+                max_spill = max(max_spill, qm["magentaSpillPct"])
+                max_edge_spill = max(max_edge_spill, qm["edgeMagentaSpillPct"])
+        except Exception as exc:
+            errors.append(f"Invalid sprite-2x2.png: {exc}")
+
+    gif_bytes: dict[str, int] = {}
+    animation_source = "missing"
+    try:
+        idle_b, idle_frames, wave_b, wave_frames, animation_source = _resolve_pack_gif_streams(avatars_dir)
+        if animation_source == "missing" or idle_b is None or wave_b is None:
+            errors.append("Missing animation frames (provide sprite-2x2.png or blobster-idle.gif + blobster-wave.gif)")
+        else:
+            for gname, gbytes, gframes in (
+                ("blobster-idle.gif", idle_b, idle_frames),
+                ("blobster-wave.gif", wave_b, wave_frames),
+            ):
+                sz = len(gbytes)
+                gif_bytes[gname] = sz
+                if sz > OPENCLAW_AVATAR_MAX_BYTES:
+                    errors.append(f"{gname} ({sz}B) exceeds 2 MiB")
+                if len(gframes) < 2:
+                    errors.append(f"{gname} must contain >= 2 animation frames")
+                for f_idx, fr in enumerate(gframes):
+                    fm = analyze_frame_qa(fr)
+                    frame_metrics[f"{gname}#f{f_idx}"] = fm
+                    if fm["opaquePixels"] <= 0:
+                        errors.append(f"{gname}#f{f_idx} has zero visible foreground pixels")
+                    max_border_clip = max(max_border_clip, fm["borderClipPixels"])
+                    max_spill = max(max_spill, fm["magentaSpillPct"])
+                    max_edge_spill = max(max_edge_spill, fm["edgeMagentaSpillPct"])
+    except Exception as exc:
+        errors.append(f"Animation QA failed: {exc}")
+
+    if max_border_clip > 0:
+        errors.append(f"Detected {max_border_clip} border-clipped foreground pixels on outer 1px frame boundary")
+    if max_spill > max_spill_pct:
+        errors.append(f"Max #FF00FF magenta fringe spill {max_spill:.2f}% exceeds {max_spill_pct:.2f}% threshold")
+
+    return {
+        "ok": len(errors) == 0,
+        "id": agent_id,
+        "name": agent_name,
+        "avatarsDir": str(avatars_dir.resolve()),
+        "animationSource": animation_source,
+        "maxMagentaSpillPct": round(max_spill, 3),
+        "maxEdgeMagentaSpillPct": round(max_edge_spill, 3),
+        "maxSpillThresholdPct": max_spill_pct,
+        "maxBorderClipPixels": max_border_clip,
+        "customSvgShapes": custom_svg_shapes,
+        "totalSvgShapes": total_svg_shapes,
+        "svgBytes": svg_bytes,
+        "hero512Bytes": hero_bytes,
+        "cutout256Bytes": cutout_bytes,
+        "sprite2x2Bytes": sprite_bytes,
+        "idleGifBytes": gif_bytes.get("blobster-idle.gif", 0),
+        "waveGifBytes": gif_bytes.get("blobster-wave.gif", 0),
+        "frameMetrics": frame_metrics,
+        "errors": errors,
+    }
+
+
+def _load_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates = (
+        [
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+        if bold
+        else [
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+    )
+    for c in candidates:
+        if Path(c).is_file():
+            try:
+                return ImageFont.truetype(c, size=size)
+            except Exception:
+                pass
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def render_qa_contact_sheet(avatars_dir: Path, out_path: Path, qa_report: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Render a 1280x760 dark/light visual QA contact sheet for an OpenClaw Blobster pack."""
+    qa = qa_report or analyze_pack_qa(avatars_dir)
+    svg_text = (avatars_dir / "blobster.svg").read_text(encoding="utf-8")
+    svg_256 = rasterize_blobster_svg(svg_text, out_size=256, supersample=4)
+    svg_64 = rasterize_blobster_svg(svg_text, out_size=64, supersample=4)
+    svg_24 = rasterize_blobster_svg(svg_text, out_size=24, supersample=8)
+    svg_24_loupe = svg_24.resize((96, 96), Image.Resampling.NEAREST)
+
+    cutout_256 = Image.open(avatars_dir / "cutout-256.png").convert("RGBA")
+    cutout_64 = cutout_256.resize((64, 64), Image.Resampling.LANCZOS)
+    cutout_24 = cutout_256.resize((24, 24), Image.Resampling.LANCZOS)
+    hero_88 = Image.open(avatars_dir / "hero-512.png").convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
+    _, idle_frames, _, wave_frames, _ = _resolve_pack_gif_streams(avatars_dir)
+    if not idle_frames:
+        idle_frames = [cutout_256]
+    if not wave_frames:
+        wave_frames = [cutout_256]
+
+    W, H = 1280, 760
+    sheet = Image.new("RGBA", (W, H), (15, 19, 25, 255))
+    draw = ImageDraw.Draw(sheet)
+
+    f_title = _load_font(22, bold=True)
+    f_sub = _load_font(13, bold=False)
+    f_sec = _load_font(15, bold=True)
+    f_lbl = _load_font(12, bold=False)
+    f_pill = _load_font(13, bold=True)
+    f_val = _load_font(20, bold=True)
+
+    # Top header bar
+    draw.rounded_rectangle((20, 16, W - 20, 88), radius=14, fill=(23, 29, 38, 255), outline=(45, 55, 72, 255), width=1)
+    draw.text((40, 28), f"BLOBSTER QA CONTACT SHEET  ·  {qa['name']} ({qa['id']})", font=f_title, fill=(248, 250, 252, 255))
+    draw.text(
+        (40, 57),
+        "24px SVG silhouette + 4x pixel loupe  ·  64px sidebar  ·  256px cutout safe-frame  ·  #FF00FF chroma-spill & GIF frame audit",
+        font=f_sub,
+        fill=(148, 163, 184, 255),
+    )
+
+    badge_ok = qa["ok"]
+    badge_bg = (20, 83, 45, 255) if badge_ok else (127, 29, 29, 255)
+    badge_fg = (134, 239, 172, 255) if badge_ok else (254, 202, 202, 255)
+    badge_txt = "PASS · READY TO SHIP" if badge_ok else "FAIL · QA BLOCKED"
+    draw.rounded_rectangle((W - 245, 32, W - 40, 72), radius=10, fill=badge_bg, outline=badge_fg, width=1)
+    draw.text((W - 142, 52), badge_txt, font=f_pill, fill=badge_fg, anchor="mm")
+
+    # Dark (#0D1117) and Light (#F8FAFC) surface panels
+    panels = [
+        ("Dark Surface (#0D1117)", 20, (13, 17, 23, 255), (30, 41, 59, 255), (241, 245, 249, 255), (148, 163, 184, 255), (22, 27, 34, 255)),
+        ("Light Surface (#F8FAFC)", 648, (248, 250, 252, 255), (203, 213, 225, 255), (15, 23, 42, 255), (71, 85, 105, 255), (255, 255, 255, 255)),
+    ]
+
+    handle = f"@{qa['id'].replace('blobster-', '')}"
+    cutout_192 = cutout_256.resize((192, 192), Image.Resampling.LANCZOS)
+    idle_f1_88 = idle_frames[min(1, len(idle_frames) - 1)].resize((88, 88), Image.Resampling.LANCZOS)
+    wave_f2_88 = wave_frames[min(2, len(wave_frames) - 1)].resize((88, 88), Image.Resampling.LANCZOS)
+
+    for title, px, bg_col, border_col, fg_col, muted_col, card_col in panels:
+        pw, py, ph = 612, 104, 492
+        draw.rounded_rectangle((px, py, px + pw, py + ph), radius=16, fill=bg_col, outline=border_col, width=2)
+        draw.text((px + 22, py + 18), title, font=f_sec, fill=fg_col)
+        draw.text((px + pw - 210, py + 20), "24px · 64px · 256px · GIFs", font=f_lbl, fill=muted_col)
+
+        # Row 1 Left: 24px chat pills (SVG + Cutout)
+        pill1_x, pill1_y = px + 22, py + 58
+        draw.rounded_rectangle((pill1_x, pill1_y, pill1_x + 150, pill1_y + 38), radius=19, fill=card_col, outline=border_col, width=1)
+        sheet.alpha_composite(svg_24, (pill1_x + 10, pill1_y + 7))
+        draw.text((pill1_x + 42, pill1_y + 11), handle, font=f_pill, fill=fg_col)
+        draw.text((pill1_x + 4, pill1_y + 44), "24px SVG chat pill", font=f_lbl, fill=muted_col)
+
+        pill2_y = pill1_y + 68
+        draw.rounded_rectangle((pill1_x, pill2_y, pill1_x + 150, pill2_y + 38), radius=19, fill=card_col, outline=border_col, width=1)
+        sheet.alpha_composite(cutout_24, (pill1_x + 10, pill2_y + 7))
+        draw.text((pill1_x + 42, pill2_y + 11), handle, font=f_pill, fill=fg_col)
+        draw.text((pill1_x + 4, pill2_y + 44), "24px 3D GIF/cutout pill", font=f_lbl, fill=muted_col)
+
+        # Row 1 Middle: 4x pixel loupe of 24px SVG (96x96)
+        lx, ly = px + 196, py + 56
+        draw.rounded_rectangle((lx, ly, lx + 112, ly + 112), radius=12, fill=card_col, outline=border_col, width=1)
+        sheet.alpha_composite(svg_24_loupe, (lx + 8, ly + 8))
+        draw.text((lx + 4, ly + 118), "24px SVG (4x loupe)", font=f_lbl, fill=muted_col)
+
+        # Row 1 Right: 64px SVG & 64px Cutout cards
+        s64_x, s64_y = px + 332, py + 56
+        draw.rounded_rectangle((s64_x, s64_y, s64_x + 112, s64_y + 112), radius=12, fill=card_col, outline=border_col, width=1)
+        sheet.alpha_composite(svg_64, (s64_x + 24, s64_y + 24))
+        draw.text((s64_x + 18, s64_y + 118), "64px SVG", font=f_lbl, fill=muted_col)
+
+        c64_x = px + 466
+        draw.rounded_rectangle((c64_x, s64_y, c64_x + 112, s64_y + 112), radius=12, fill=card_col, outline=border_col, width=1)
+        sheet.alpha_composite(cutout_64, (c64_x + 24, s64_y + 24))
+        draw.text((c64_x + 14, s64_y + 118), "64px Cutout", font=f_lbl, fill=muted_col)
+
+        # Row 2 Left: Large Cutout Safe-Frame & Spill Box
+        big_x, big_y = px + 22, py + 248
+        draw.rounded_rectangle((big_x, big_y, big_x + 216, big_y + 212), radius=14, fill=card_col, outline=border_col, width=1)
+        # Dashed/subtle safe border around 192x192 cutout
+        draw.rectangle((big_x + 11, big_y + 9, big_x + 205, big_y + 203), outline=(56, 189, 248, 95), width=1)
+        sheet.alpha_composite(cutout_192, (big_x + 12, big_y + 10))
+        draw.text((big_x + 14, big_y + 217), "256px Cutout · Edge & #FF00FF Spill", font=f_lbl, fill=muted_col)
+
+        # Row 2 Right: Idle GIF frame, Wave GIF frame, 3D Hero thumb + 256px SVG preview
+        strip_items = [
+            (idle_f1_88, "Idle GIF f1"),
+            (wave_f2_88, "Wave GIF f2"),
+            (hero_88, "512px 3D Hero"),
+        ]
+        for idx_s, (thumb, caption) in enumerate(strip_items):
+            tx = px + 260 + idx_s * 112
+            ty = py + 252
+            draw.rounded_rectangle((tx, ty, tx + 102, ty + 102), radius=12, fill=card_col, outline=border_col, width=1)
+            if caption == "512px 3D Hero":
+                sheet.paste(thumb, (tx + 7, ty + 7))
+            else:
+                sheet.alpha_composite(thumb, (tx + 7, ty + 7))
+            draw.text((tx + 8, ty + 108), caption, font=f_lbl, fill=muted_col)
+
+        # Compact frame-check summary inside panel bottom-right
+        note_y = py + 392
+        draw.rounded_rectangle((px + 260, note_y, px + 586, note_y + 68), radius=10, fill=card_col, outline=border_col, width=1)
+        svg_mini = svg_256.resize((52, 52), Image.Resampling.LANCZOS)
+        sheet.alpha_composite(svg_mini, (px + 270, note_y + 8))
+        draw.text((px + 332, note_y + 14), f"Vector + GIF Parity · {qa['id']}", font=f_lbl, fill=fg_col)
+        draw.text(
+            (px + 332, note_y + 37),
+            f"Spill {qa['maxMagentaSpillPct']:.2f}%  ·  Clip {qa['maxBorderClipPixels']}px  ·  Shapes {qa['customSvgShapes']}",
+            font=f_lbl,
+            fill=muted_col,
+        )
+
+    # Bottom Telemetry Cards (4 cards across 1240px)
+    idle_kb = qa["idleGifBytes"] // 1024
+    wave_kb = qa["waveGifBytes"] // 1024
+    hero_kb = qa["hero512Bytes"] // 1024
+    cards = [
+        (
+            "#FF00FF Fringe Spill",
+            f"{qa['maxMagentaSpillPct']:.2f}%",
+            f"Threshold <= {qa['maxSpillThresholdPct']:.2f}% across all frames",
+            qa["maxMagentaSpillPct"] <= qa["maxSpillThresholdPct"],
+        ),
+        (
+            "Frame Border Clipping",
+            f"{qa['maxBorderClipPixels']} border px",
+            "0 outer-perimeter pixels clipped",
+            qa["maxBorderClipPixels"] == 0,
+        ),
+        (
+            "24px Custom SVG Shapes",
+            f"{qa['customSvgShapes']} shapes",
+            f"Target <= {MAX_CUSTOM_SVG_SHAPES} · viewBox -12 -18 144 144",
+            qa["customSvgShapes"] <= MAX_CUSTOM_SVG_SHAPES,
+        ),
+        (
+            "OpenClaw < 2 MiB Budgets",
+            f"{idle_kb}KB · {wave_kb}KB · {hero_kb}KB",
+            "idle.gif · wave.gif · hero-512.png (< 2048 KB)",
+            max(qa["idleGifBytes"], qa["waveGifBytes"], qa["hero512Bytes"]) <= OPENCLAW_AVATAR_MAX_BYTES,
+        ),
+    ]
+    cw_card = 298
+    gap = 16
+    for idx_c, (c_title, c_val, c_sub, c_ok) in enumerate(cards):
+        cx0 = 20 + idx_c * (cw_card + gap)
+        cy0 = 614
+        accent = (74, 222, 128, 255) if c_ok else (248, 113, 113, 255)
+        draw.rounded_rectangle((cx0, cy0, cx0 + cw_card, cy0 + 126), radius=14, fill=(23, 29, 38, 255), outline=(45, 55, 72, 255), width=1)
+        draw.text((cx0 + 18, cy0 + 16), c_title, font=f_lbl, fill=(148, 163, 184, 255))
+        draw.text((cx0 + 18, cy0 + 44), c_val, font=f_val, fill=accent)
+        draw.text((cx0 + 18, cy0 + 86), c_sub, font=f_lbl, fill=(148, 163, 184, 255))
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.convert("RGB").save(out_path, format="PNG", optimize=True)
+    return {**qa, "contactSheet": str(out_path.resolve()), "contactSheetBytes": out_path.stat().st_size}
+
+
+def compile_tier1_pack(
+    design_json_path: Path,
+    hero_source_path: Path,
+    sheet_2x2_path: Path,
+    output_dir: Path,
+    gif_size: int = 256,
+    qa_out_path: Path | None = None,
+    max_spill_pct: float = 1.5,
+    omit_gifs: bool = False,
+) -> dict[str, Any]:
+    design = json.loads(design_json_path.read_text(encoding="utf-8"))
+    svg_text = render_blobster_svg(design)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    svg_path = output_dir / "blobster.svg"
+    svg_path.write_text(svg_text, encoding="utf-8")
+
+    hero_img = Image.open(hero_source_path).convert("RGBA")
+    hw, hh = hero_img.size
+    side = min(hw, hh)
+    left = (hw - side) // 2
+    top = (hh - side) // 2
+    hero_512 = hero_img.crop((left, top, left + side, top + side)).resize(
+        (512, 512), Image.Resampling.LANCZOS
+    )
+    hero_512_path = output_dir / "hero-512.png"
+    hero_512.save(hero_512_path, format="PNG", optimize=True)
+
+    if gif_size < 32 or gif_size > 1024:
+        raise ValueError(f"--gif-size must be between 32 and 1024, got {gif_size}")
+
+    sheet_img = Image.open(sheet_2x2_path).convert("RGBA")
+    sw, sh = sheet_img.size
+    cw, ch = sw // 2, sh // 2
+    ix, iy = int(cw * 0.02), int(ch * 0.02)
+    quadrants = [
+        (0 + ix, 0 + iy, cw - ix, ch - iy),
+        (cw + ix, 0 + iy, sw - ix, ch - iy),
+        (0 + ix, ch + iy, cw - ix, sh - iy),
+        (cw + ix, ch + iy, sw - ix, sh - iy),
+    ]
+    despilled_cells = [despike_magenta_cell(sheet_img.crop(box)) for box in quadrants]
+    canonical_frames_256 = [normalize_cell_frame(cell, target_size=256) for cell in despilled_cells]
+
+    sprite_2x2_path = output_dir / "sprite-2x2.png"
+    save_sprite_2x2_png(canonical_frames_256, sprite_2x2_path)
+
+    cutout_path = output_dir / "cutout-256.png"
+    canonical_frames_256[0].save(cutout_path, format="PNG", optimize=True)
+
+    idle_gif_path = output_dir / "blobster-idle.gif"
+    wave_gif_path = output_dir / "blobster-wave.gif"
+    if omit_gifs:
+        for stale_gif in (idle_gif_path, wave_gif_path):
+            if stale_gif.exists() or stale_gif.is_symlink():
+                stale_gif.unlink()
+    else:
+        gif_frames_src = (
+            canonical_frames_256
+            if gif_size == 256
+            else [normalize_cell_frame(cell, target_size=gif_size) for cell in despilled_cells]
+        )
+        idle_frames = [gif_frames_src[0], gif_frames_src[1], gif_frames_src[0], gif_frames_src[1]]
+        wave_frames = [gif_frames_src[0], gif_frames_src[2], gif_frames_src[3], gif_frames_src[2]]
+        save_transparent_gif(idle_frames, idle_gif_path, duration_ms=260)
+        save_transparent_gif(wave_frames, wave_gif_path, duration_ms=200)
+
+    # Copy blobster-design.json into output_dir if compiling into a fresh target directory
+    dest_design = output_dir / "blobster-design.json"
+    if design_json_path.resolve() != dest_design.resolve():
+        dest_design.write_text(design_json_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    qa_res = analyze_pack_qa(output_dir, max_spill_pct=max_spill_pct)
+    if qa_out_path is not None:
+        qa_res = render_qa_contact_sheet(output_dir, qa_out_path, qa_report=qa_res)
+
+    return {
+        "ok": qa_res["ok"],
+        "id": design["id"],
+        "name": design["name"],
+        "svg": str(svg_path),
+        "svgBytes": svg_path.stat().st_size,
+        "hero512": str(hero_512_path),
+        "hero512Bytes": hero_512_path.stat().st_size,
+        "sprite2x2": str(sprite_2x2_path),
+        "sprite2x2Bytes": sprite_2x2_path.stat().st_size,
+        "idleGif": None if omit_gifs else str(idle_gif_path),
+        "idleGifBytes": qa_res["idleGifBytes"],
+        "waveGif": None if omit_gifs else str(wave_gif_path),
+        "waveGifBytes": qa_res["waveGifBytes"],
+        "cutout256": str(cutout_path),
+        "qa": {
+            "ok": qa_res["ok"],
+            "maxMagentaSpillPct": qa_res["maxMagentaSpillPct"],
+            "maxBorderClipPixels": qa_res["maxBorderClipPixels"],
+            "customSvgShapes": qa_res["customSvgShapes"],
+            "contactSheet": qa_res.get("contactSheet"),
+            "errors": qa_res["errors"],
+        },
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_svg = sub.add_parser("svg", help="Compile & validate an OpenClaw Blobster SVG from design JSON")
+    p_svg.add_argument("--design", required=True, type=Path, help="Path to blobster-design.json")
+    p_svg.add_argument("--out", required=True, type=Path, help="Output SVG path")
+
+    p_tier1 = sub.add_parser("tier1", help="Compile full Tier 1 Fast Pack (SVG + 512 PNG + sprite-2x2.png + GIFs + QA)")
+    p_tier1.add_argument("--design", required=True, type=Path, help="Path to blobster-design.json")
+    p_tier1.add_argument("--hero", required=True, type=Path, help="Path to 1:1 3D hero source image")
+    p_tier1.add_argument("--sheet", required=True, type=Path, help="Path to 2x2 #FF00FF chroma-key sheet")
+    p_tier1.add_argument("--out-dir", required=True, type=Path, help="Output avatars/ directory")
+    p_tier1.add_argument("--gif-size", type=int, default=256, help="Square GIF pixel dimension (default: 256)")
+    p_tier1.add_argument(
+        "--omit-gifs",
+        action="store_true",
+        help="Write single-frame sprite-2x2.png + cutout-256.png without writing multi-frame .gif files to disk.",
+    )
+    p_tier1.add_argument(
+        "--qa-out",
+        type=Path,
+        default=None,
+        help="Optional output PNG path for 1280x760 dark/light QA contact sheet (keep outside templates/<id>/).",
+    )
+    p_tier1.add_argument(
+        "--max-spill-pct",
+        type=float,
+        default=1.5,
+        help="Max allowed #FF00FF magenta fringe spill percentage per frame (default: 1.5).",
+    )
+
+    p_gifs = sub.add_parser("gifs", help="Hydrate blobster-idle.gif & blobster-wave.gif from single-frame sprite-2x2.png")
+    p_gifs.add_argument("--avatars-dir", type=Path, default=None, help="Path to one workspace/avatars directory")
+    p_gifs.add_argument("--out-dir", type=Path, default=None, help="Output directory for single-pack GIF hydration")
+    p_gifs.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Write blobster-idle.gif and blobster-wave.gif directly inside --avatars-dir.",
+    )
+    p_gifs.add_argument(
+        "--all-templates",
+        action="store_true",
+        help="Hydrate GIFs for all templates/*/workspace/avatars packs into --out-root (default: dist/avatars).",
+    )
+    p_gifs.add_argument(
+        "--out-root",
+        type=Path,
+        default=None,
+        help="Output root directory when using --all-templates (default: <repo>/dist/avatars).",
+    )
+
+    p_qa = sub.add_parser("qa", help="Audit an avatars/ pack and optionally emit a dark/light QA contact sheet PNG")
+    p_qa.add_argument("--avatars-dir", required=True, type=Path, help="Path to workspace/avatars directory")
+    p_qa.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Output PNG path for 1280x760 dark/light QA contact sheet (keep outside templates/<id>/).",
+    )
+    p_qa.add_argument(
+        "--max-spill-pct",
+        type=float,
+        default=1.5,
+        help="Max allowed #FF00FF magenta fringe spill percentage per frame (default: 1.5).",
+    )
+
+    args = parser.parse_args(argv)
+    if args.cmd == "svg":
+        if not args.design.is_file():
+            print(f"error: design JSON not found: {args.design}", file=sys.stderr)
+            return 2
+        try:
+            design = json.loads(args.design.read_text(encoding="utf-8"))
+            svg_text = render_blobster_svg(design)
+            svg_meta = validate_compiled_blobster_svg(svg_text)
+        except (ValueError, json.JSONDecodeError, ET.ParseError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(svg_text, encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "svg": str(args.out),
+                    "bytes": args.out.stat().st_size,
+                    "customSvgShapes": svg_meta["customSvgShapes"],
+                    "totalSvgShapes": svg_meta["totalSvgShapes"],
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if args.cmd in ("tier1", "gifs", "qa"):
+        try:
+            _require_pillow()
+        except RuntimeError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+    if args.cmd == "tier1":
+        for req_p, label in ((args.design, "design"), (args.hero, "hero"), (args.sheet, "sheet")):
+            if not req_p.is_file():
+                print(f"error: {label} file not found: {req_p}", file=sys.stderr)
+                return 2
+        try:
+            res = compile_tier1_pack(
+                design_json_path=args.design,
+                hero_source_path=args.hero,
+                sheet_2x2_path=args.sheet,
+                output_dir=args.out_dir,
+                gif_size=args.gif_size,
+                qa_out_path=args.qa_out,
+                max_spill_pct=args.max_spill_pct,
+                omit_gifs=args.omit_gifs,
+            )
+        except (ValueError, json.JSONDecodeError, ET.ParseError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(res, indent=2))
+        if not res["ok"]:
+            for err in res["qa"]["errors"]:
+                print(f"qa error: {err}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.cmd == "gifs":
+        work_root = Path.cwd()
+        if not (work_root / "templates").is_dir():
+            for anchor in (Path(sys.argv[0]).resolve(), Path(__file__).resolve()):
+                for parent in anchor.parents:
+                    if (parent / "templates").is_dir() and (parent / "scripts" / "verify_blobster_factory.py").is_file():
+                        work_root = parent
+                        break
+                if (work_root / "templates").is_dir():
+                    break
+        if args.all_templates:
+            templates_root = work_root / "templates"
+            if not templates_root.is_dir():
+                print(f"error: templates directory not found: {templates_root}", file=sys.stderr)
+                return 2
+            out_root = args.out_root or (work_root / "dist" / "avatars")
+            packs: list[dict[str, Any]] = []
+            for tdir in sorted(p for p in templates_root.iterdir() if p.is_dir()):
+                adir = tdir / "workspace" / "avatars"
+                if (adir / "sprite-2x2.png").is_file():
+                    dest = adir if args.in_place else (out_root / tdir.name)
+                    packs.append({"template": tdir.name, **hydrate_gifs_from_sprite_2x2(adir, dest)})
+            print(json.dumps({"ok": True, "hydratedCount": len(packs), "packs": packs}, indent=2))
+            return 0
+        if args.avatars_dir is None:
+            print("error: provide --avatars-dir <dir> or --all-templates", file=sys.stderr)
+            return 2
+        if not args.avatars_dir.is_dir():
+            print(f"error: avatars directory not found: {args.avatars_dir}", file=sys.stderr)
+            return 2
+        pack_id = _infer_pack_id(args.avatars_dir)
+        dest_dir = (
+            args.avatars_dir
+            if args.in_place
+            else (args.out_dir or (Path.cwd() / "dist" / "avatars" / pack_id))
+        )
+        res_gif = hydrate_gifs_from_sprite_2x2(args.avatars_dir, dest_dir)
+        print(json.dumps(res_gif, indent=2))
+        return 0
+
+    if args.cmd == "qa":
+        if not args.avatars_dir.is_dir():
+            print(f"error: avatars directory not found: {args.avatars_dir}", file=sys.stderr)
+            return 2
+        qa_res = (
+            render_qa_contact_sheet(args.avatars_dir, args.out, qa_report=analyze_pack_qa(args.avatars_dir, args.max_spill_pct))
+            if args.out is not None
+            else analyze_pack_qa(args.avatars_dir, max_spill_pct=args.max_spill_pct)
+        )
+        print(json.dumps(qa_res, indent=2))
+        if not qa_res["ok"]:
+            for err in qa_res["errors"]:
+                print(f"qa error: {err}", file=sys.stderr)
+            return 1
+        return 0
+
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

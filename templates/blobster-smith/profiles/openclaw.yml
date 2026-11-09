@@ -1,0 +1,39 @@
+schemaVersion: 1
+agent:
+  groupChat:
+    mentionPatterns:
+      - "@blobster-smith"
+      - "@smith"
+  sandbox:
+    mode: "non-main"
+    scope: "session"
+    workspaceAccess: "rw"
+  tools:
+    profile: "coding"
+    allow:
+      - "ls"
+      - "read"
+      - "write"
+      - "edit"
+      - "apply_patch"
+      - "exec"
+      - "process"
+      - "web_search"
+      - "web_fetch"
+      - "memory_search"
+      - "memory_get"
+      - "ask_user"
+      - "progress_card"
+      - "skill_workshop"
+      - "skills_search"
+      - "skills_read"
+      - "automations"
+    fs:
+      workspaceOnly: true
+  memory:
+    search:
+      enabled: true
+      rememberAcrossConversations: true
+      sources:
+        - "memory"
+        - "sessions"
