@@ -350,15 +350,27 @@ def _parse_cron_field(
     min_val: int,
     max_val: int,
     aliases: dict[str, int] | None = None,
+    *,
+    sunday_upper_seven: bool = False,
+    max_step: int | None = None,
+    dom_modifiers: bool = False,
+    dow_modifiers: bool = False,
 ) -> set[int] | None:
     """Validate and expand a single cron field matching OpenClaw's Croner 5-field grammar."""
     if not field:
         return None
-    segments = field.split(",")
+    normalized = field.replace("?", "*")
+    if dow_modifiers and normalized.startswith("+"):
+        normalized = normalized[1:]
+        if not normalized:
+            return None
+    segments = normalized.split(",")
     if any(not seg for seg in segments):
         return None
 
-    def parse_atom(token: str) -> int | None:
+    def parse_atom(token: str, *, is_range_upper: bool = False) -> int | None:
+        if is_range_upper and sunday_upper_seven and token.upper() == "SUN":
+            return 7
         if aliases and token.upper() in aliases:
             return aliases[token.upper()]
         if re.fullmatch(r"\d+", token):
@@ -367,9 +379,34 @@ def _parse_cron_field(
                 return val
         return None
 
-    span = max_val - min_val + 1
+    step_limit = max_step if max_step is not None else (max_val - min_val + 1)
     out: set[int] = set()
-    for seg in segments:
+    for raw_seg in segments:
+        seg = raw_seg
+        if dom_modifiers:
+            up = seg.upper()
+            if up in ("L", "LW"):
+                out.add(28)
+                continue
+            if up.endswith("W"):
+                if "/" in seg or "-" in seg or not re.fullmatch(r"\d+", seg[:-1]):
+                    return None
+                w_day = int(seg[:-1])
+                if not (min_val <= w_day <= max_val):
+                    return None
+                out.add(w_day)
+                continue
+        if dow_modifiers:
+            if "#" in seg:
+                nth_parts = seg.split("#")
+                if len(nth_parts) != 2 or not re.fullmatch(r"[1-5]", nth_parts[1]):
+                    return None
+                seg = nth_parts[0]
+            elif seg.upper().endswith("L"):
+                seg = seg[:-1]
+            if not seg:
+                return None
+
         if "/" in seg:
             slash_parts = seg.split("/")
             if len(slash_parts) != 2:
@@ -378,7 +415,7 @@ def _parse_cron_field(
             if not re.fullmatch(r"\d+", step_str):
                 return None
             step = int(step_str)
-            if step < 1 or step > span:
+            if step < 1 or step > step_limit:
                 return None
             if base == "*":
                 lo, hi = min_val, max_val
@@ -387,7 +424,7 @@ def _parse_cron_field(
                 if len(range_parts) != 2:
                     return None
                 lo_v = parse_atom(range_parts[0])
-                hi_v = parse_atom(range_parts[1])
+                hi_v = parse_atom(range_parts[1], is_range_upper=True)
                 if lo_v is None or hi_v is None or lo_v > hi_v:
                     return None
                 lo, hi = lo_v, hi_v
@@ -403,7 +440,7 @@ def _parse_cron_field(
                 if len(range_parts) != 2:
                     return None
                 lo_v = parse_atom(range_parts[0])
-                hi_v = parse_atom(range_parts[1])
+                hi_v = parse_atom(range_parts[1], is_range_upper=True)
                 if lo_v is None or hi_v is None or lo_v > hi_v:
                     return None
                 out.update(range(lo_v, hi_v + 1))
@@ -422,9 +459,17 @@ def is_valid_5_field_cron(expr: str) -> bool:
         return False
     minutes = _parse_cron_field(parts[0], 0, 59)
     hours = _parse_cron_field(parts[1], 0, 23)
-    doms = _parse_cron_field(parts[2], 1, 31)
+    doms = _parse_cron_field(parts[2], 1, 31, dom_modifiers=True)
     months = _parse_cron_field(parts[3], 1, 12, aliases=CRON_MONTH_ALIASES)
-    dows = _parse_cron_field(parts[4], 0, 7, aliases=CRON_DOW_ALIASES)
+    dows = _parse_cron_field(
+        parts[4],
+        0,
+        7,
+        aliases=CRON_DOW_ALIASES,
+        sunday_upper_seven=True,
+        max_step=7,
+        dow_modifiers=True,
+    )
     if any(f is None for f in (minutes, hours, doms, months, dows)):
         return False
     assert doms is not None and months is not None

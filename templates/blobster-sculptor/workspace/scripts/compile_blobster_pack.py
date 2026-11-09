@@ -101,6 +101,14 @@ MAX_CUSTOM_SVG_SHAPES = 24
 
 
 def escape_xml(value: str) -> str:
+    for ch in value:
+        code = ord(ch)
+        if (
+            (code < 0x20 and code not in (0x09, 0x0A, 0x0D))
+            or (0xD800 <= code <= 0xDFFF)
+            or code in (0xFFFE, 0xFFFF)
+        ):
+            raise ValueError("Invalid XML text")
     return (
         value.replace("&", "&amp;")
         .replace("<", "&lt;")
@@ -120,32 +128,56 @@ def validate_svg_attr(name: str, value: str) -> bool:
     if any(not math.isfinite(float(n)) or abs(float(n)) > 2000 for n in nums):
         return False
     if name in NUMERIC_ATTRS:
-        return bool(NUMBER_EXACT_RE.match(value))
+        if not NUMBER_EXACT_RE.match(value):
+            return False
+        if name in ("r", "rx", "ry", "width", "height", "stroke-width", "stroke-miterlimit") and float(value) < 0.0:
+            return False
+        return True
     if name in ("opacity", "fill-opacity", "stroke-opacity"):
         return bool(NUMBER_EXACT_RE.match(value)) and 0.0 <= float(value) <= 1.0
     if name == "d":
         stripped = NUMBER_RE.sub("", value)
         return len(nums) > 0 and bool(re.match(r"^[MmZzLlHhVvCcSsQqTtAa\s,]*$", stripped))
     if name in ("points", "stroke-dasharray"):
+        if value == "none" and name == "stroke-dasharray":
+            return True
         stripped = NUMBER_RE.sub("", value)
-        return value == "none" or (len(nums) > 0 and bool(re.match(r"^[\s,]*$", stripped)))
+        if not (len(nums) > 0 and bool(re.match(r"^[\s,]*$", stripped))):
+            return False
+        if name == "stroke-dasharray" and any(float(n) < 0.0 for n in nums):
+            return False
+        return True
     if name == "transform":
         return bool(TRANSFORM_RE.match(value))
     return False
 
 
 def sanitize_svg_fragment(source: str) -> str:
+    if len(source) > 12_000:
+        raise ValueError("SVG layer fragment exceeds 12000-character limit")
     if not source.strip():
         return ""
     if "<!" in source or "<?" in source:
         raise ValueError("SVG declarations are not allowed")
     wrapped = f'<svg xmlns="http://www.w3.org/2000/svg">{source}</svg>'
-    root = ET.fromstring(wrapped)
+    try:
+        root = ET.fromstring(wrapped)
+    except ET.ParseError as exc:
+        raise ValueError(f"Invalid SVG fragment: {exc}") from exc
+    if root.text and root.text.strip():
+        raise ValueError("SVG text content is not allowed")
     count = 0
 
     def render_node(elem: ET.Element, depth: int) -> str:
         nonlocal count
-        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if (elem.text and elem.text.strip()) or (elem.tail and elem.tail.strip()):
+            raise ValueError("SVG text content is not allowed")
+        if "}" in elem.tag:
+            ns_uri, tag = elem.tag[1:].split("}", 1)
+            if ns_uri != "http://www.w3.org/2000/svg":
+                raise ValueError(f"Unsupported SVG namespace: {ns_uri}")
+        else:
+            tag = elem.tag
         if tag not in ALLOWED_TAGS:
             raise ValueError(f"Unsupported SVG element: {tag}")
         count += 1
@@ -153,9 +185,13 @@ def sanitize_svg_fragment(source: str) -> str:
             raise ValueError("SVG fragment is too complex")
         attrs_list: list[str] = []
         for k, v in elem.attrib.items():
-            attr_name = k.split("}")[-1] if "}" in k else k
+            if "}" in k or ":" in k:
+                raise ValueError(f"Unsupported namespaced SVG attribute: {k}")
+            attr_name = k
             if not validate_svg_attr(attr_name, v):
                 raise ValueError(f"Unsupported or invalid SVG attribute: {attr_name}={v!r}")
+            if attr_name == "d":
+                _parse_svg_path_subpaths(v)
             attrs_list.append(f' {attr_name}="{escape_xml(v)}"')
         children_str = "".join(render_node(child, depth + 1) for child in list(elem))
         return f"<{tag}{''.join(attrs_list)}>{children_str}</{tag}>"
@@ -164,30 +200,53 @@ def sanitize_svg_fragment(source: str) -> str:
 
 
 def render_blobster_svg(design: dict[str, Any]) -> str:
-    if design.get("version") != 1:
-        raise ValueError("Blobster design version must be 1")
-    design_id = design.get("id", "")
-    if not SLUG_ID_RE.match(design_id) or len(design_id) > 80:
+    if not isinstance(design, dict):
+        raise ValueError("Blobster design must be a JSON object")
+    unknown_keys = set(design.keys()) - {"version", "id", "name", "description", "palette", "layers"}
+    if unknown_keys:
+        raise ValueError(f"Unsupported Blobster design keys: {sorted(unknown_keys)}")
+    if type(design.get("version")) is not int or design.get("version") != 1:
+        raise ValueError("Blobster design version must be integer 1")
+    design_id = design.get("id")
+    if not isinstance(design_id, str) or not SLUG_ID_RE.match(design_id) or len(design_id) > 80:
         raise ValueError(f"Invalid Blobster id: {design_id!r}")
-    name = str(design.get("name", "")).strip()
-    description = str(design.get("description", "")).strip()
+    raw_name = design.get("name")
+    raw_desc = design.get("description")
+    if not isinstance(raw_name, str) or not isinstance(raw_desc, str):
+        raise ValueError("Blobster design name and description must be strings")
+    if len(raw_name) > 120 or len(raw_desc) > 1000:
+        raise ValueError("Blobster design name (<= 120) or description (<= 1000) exceeds length limit")
+    name = raw_name.strip()
+    description = raw_desc.strip()
     if not name or not description:
         raise ValueError("Blobster design requires non-empty name and description")
-    palette = design.get("palette", {})
+    palette = design.get("palette")
+    if not isinstance(palette, dict) or set(palette.keys()) != {"shell", "claw", "glint"}:
+        raise ValueError("Blobster design palette must contain exact keys: shell, claw, glint")
     for key in ("shell", "claw", "glint"):
-        if not HEX_COLOR_RE.match(str(palette.get(key, ""))):
-            raise ValueError(f"Invalid palette.{key}: {palette.get(key)!r}")
-    raw_layers = design.get("layers", {})
+        val = palette.get(key)
+        if not isinstance(val, str) or not HEX_COLOR_RE.match(val):
+            raise ValueError(f"Invalid palette.{key}: {val!r}")
+    raw_layers = design.get("layers")
+    if not isinstance(raw_layers, dict):
+        raise ValueError("Blobster design layers must be an object")
+    extra_layers = set(raw_layers.keys()) - set(LAYERS)
+    if extra_layers:
+        raise ValueError(f"Unsupported Blobster layers: {sorted(extra_layers)}")
+    for layer in LAYERS:
+        layer_val = raw_layers.get(layer, "")
+        if not isinstance(layer_val, str):
+            raise ValueError(f"Blobster layer {layer!r} must be a string")
     if raw_layers.get("back", "") != "":
         raise ValueError("Blobster layer 'back' must be an empty string (no background allowed)")
     rendered_layers = {
-        layer: sanitize_svg_fragment(str(raw_layers.get(layer, "")))
+        layer: sanitize_svg_fragment(raw_layers.get(layer, ""))
         for layer in LAYERS
     }
     shell = palette["shell"]
     claw = palette["claw"]
     glint = palette["glint"]
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="-12 -18 144 144" role="img">
+    svg_text = f"""<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="-12 -18 144 144" role="img">
 <metadata>{escape_xml(OPENCLAW_LICENSE)}</metadata>
 <title>{escape_xml(name)}</title><desc>{escape_xml(description)}</desc>
 <defs><clipPath id="blobster-body-clip"><path d="{BODY_PATH}"/></clipPath></defs>
@@ -201,6 +260,8 @@ def render_blobster_svg(design: dict[str, Any]) -> str:
 <g><circle cx="45" cy="32" r="5.5" fill="#0a1014"/><circle cx="75" cy="32" r="5.5" fill="#0a1014"/><circle cx="46.5" cy="30.5" r="2.2" fill="{glint}"/><circle cx="76.5" cy="30.5" r="2.2" fill="{glint}"/></g>
 </svg>
 """
+    validate_compiled_blobster_svg(svg_text)
+    return svg_text
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +386,10 @@ def _sample_svg_arc(
 
 def _parse_svg_path_subpaths(d_str: str, curve_steps: int = 20) -> list[tuple[list[tuple[float, float]], bool]]:
     tokens = PATH_TOKEN_RE.findall(d_str)
+    if not tokens:
+        return []
+    if tokens[0] not in ("M", "m"):
+        raise ValueError("SVG path data must start with an M or m moveto command")
     subpaths: list[tuple[list[tuple[float, float]], bool]] = []
     cur_pts: list[tuple[float, float]] = []
     cx, cy = 0.0, 0.0
@@ -337,6 +402,8 @@ def _parse_svg_path_subpaths(d_str: str, curve_steps: int = 20) -> list[tuple[li
 
     def next_float() -> float:
         nonlocal idx
+        if idx >= len(tokens) or tokens[idx].isalpha():
+            raise ValueError(f"Incomplete SVG path command {cmd!r}")
         val = float(tokens[idx])
         idx += 1
         return val
@@ -347,7 +414,7 @@ def _parse_svg_path_subpaths(d_str: str, curve_steps: int = 20) -> list[tuple[li
             cmd = tok
             idx += 1
         elif not cmd:
-            break
+            raise ValueError("SVG path coordinates missing active command")
 
         if cmd in ("M", "m"):
             if cur_pts:
@@ -533,6 +600,186 @@ def _sample_rect_pts(x: float, y: float, w: float, h: float, rx: float, ry: floa
     return pts
 
 
+def _render_fill_mask(
+    ss_px: int,
+    polys: list[list[tuple[float, float]]],
+    fill_rule: str = "nonzero",
+) -> tuple[Image.Image, tuple[int, int]] | None:
+    """Scanline-fill compound subpaths using exact SVG 'nonzero' or 'evenodd' winding rules."""
+    edges: list[tuple[float, float, float, float, int]] = []
+    min_x_f, max_x_f = float("inf"), float("-inf")
+    min_y_f, max_y_f = float("inf"), float("-inf")
+
+    for pts in polys:
+        if len(pts) < 3:
+            continue
+        ring = pts if pts[0] == pts[-1] else [*pts, pts[0]]
+        if len(ring) < 4:
+            continue
+        for px, py in pts:
+            if px < min_x_f:
+                min_x_f = px
+            if px > max_x_f:
+                max_x_f = px
+            if py < min_y_f:
+                min_y_f = py
+            if py > max_y_f:
+                max_y_f = py
+        for i in range(len(ring) - 1):
+            x0, y0 = ring[i]
+            x1, y1 = ring[i + 1]
+            if abs(y1 - y0) < 1e-12:
+                continue
+            if y0 < y1:
+                edges.append((y0, y1, x0, (x1 - x0) / (y1 - y0), 1))
+            else:
+                edges.append((y1, y0, x1, (x0 - x1) / (y0 - y1), -1))
+
+    if not edges:
+        return None
+
+    x0_box = max(0, min(ss_px, math.floor(min_x_f)))
+    x1_box = max(0, min(ss_px, math.ceil(max_x_f)))
+    y0_box = max(0, min(ss_px, math.ceil(min_y_f - 0.5)))
+    y1_box = max(0, min(ss_px, math.ceil(max_y_f - 0.5)))
+    w_box = x1_box - x0_box
+    h_box = y1_box - y0_box
+    if w_box <= 0 or h_box <= 0:
+        return None
+
+    buckets: dict[int, list[tuple[int, float, float, float, int]]] = {}
+    for ymin, ymax, x_at_ymin, inv_slope, direction in edges:
+        r_start = max(y0_box, math.ceil(ymin - 0.5))
+        r_end = min(y1_box, math.ceil(ymax - 0.5))
+        if r_start < r_end:
+            buckets.setdefault(r_start, []).append((r_end, ymin, x_at_ymin, inv_slope, direction))
+
+    buf = bytearray(w_box * h_box)
+    active: list[tuple[int, float, float, float, int]] = []
+    use_evenodd = fill_rule == "evenodd"
+
+    for y in range(y0_box, y1_box):
+        if y in buckets:
+            active.extend(buckets[y])
+        if not active:
+            continue
+        active = [e for e in active if e[0] > y]
+        if not active:
+            continue
+        yc = y + 0.5
+        crossings = sorted(
+            (x_at_ymin + (yc - ymin) * inv_slope, direction)
+            for _, ymin, x_at_ymin, inv_slope, direction in active
+        )
+        row_off = (y - y0_box) * w_box
+        if use_evenodd:
+            for i in range(0, len(crossings) - 1, 2):
+                px0 = max(x0_box, math.ceil(crossings[i][0] - 0.5))
+                px1 = min(x1_box, math.ceil(crossings[i + 1][0] - 0.5))
+                if px1 > px0:
+                    buf[row_off + (px0 - x0_box) : row_off + (px1 - x0_box)] = b"\xff" * (px1 - px0)
+        else:
+            winding = 0
+            x_enter = 0.0
+            for x_c, d_c in crossings:
+                if winding == 0:
+                    x_enter = x_c
+                winding += d_c
+                if winding == 0:
+                    px0 = max(x0_box, math.ceil(x_enter - 0.5))
+                    px1 = min(x1_box, math.ceil(x_c - 0.5))
+                    if px1 > px0:
+                        buf[row_off + (px0 - x0_box) : row_off + (px1 - x0_box)] = b"\xff" * (px1 - px0)
+
+    return Image.frombytes("L", (w_box, h_box), bytes(buf)), (x0_box, y0_box)
+
+
+def _dash_polyline(
+    pts: list[tuple[float, float]],
+    closed: bool,
+    dashes: list[float],
+    dashoffset: float = 0.0,
+) -> list[tuple[list[tuple[float, float]], bool]]:
+    """Slice a polyline into visible dash runs according to SVG stroke-dasharray / stroke-dashoffset."""
+    if len(pts) < 2 or not dashes:
+        return [(pts, closed)] if pts else []
+    pattern = dashes * 2 if (len(dashes) % 2 == 1) else list(dashes)
+    period = sum(pattern)
+    if period <= 1e-9:
+        return [(pts, closed)]
+
+    offset = dashoffset % period
+    pat_idx = 0
+    while offset > pattern[pat_idx] + 1e-12:
+        offset -= pattern[pat_idx]
+        pat_idx = (pat_idx + 1) % len(pattern)
+    rem = pattern[pat_idx] - offset
+    draw_on = (pat_idx % 2) == 0
+
+    runs: list[tuple[list[tuple[float, float]], bool]] = []
+    cur_run: list[tuple[float, float]] = [pts[0]] if draw_on else []
+
+    for i in range(len(pts) - 1):
+        ax, ay = pts[i]
+        bx, by = pts[i + 1]
+        seg_len = math.hypot(bx - ax, by - ay)
+        if seg_len <= 1e-9:
+            continue
+        ux, uy = (bx - ax) / seg_len, (by - ay) / seg_len
+        pos = 0.0
+        while pos < seg_len - 1e-9:
+            while rem <= 1e-12:
+                if draw_on and len(cur_run) >= 1:
+                    runs.append((cur_run, False))
+                    cur_run = []
+                pat_idx = (pat_idx + 1) % len(pattern)
+                draw_on = (pat_idx % 2) == 0
+                rem = pattern[pat_idx]
+                if draw_on:
+                    cur_run = [(ax + ux * pos, ay + uy * pos)]
+            step = min(rem, seg_len - pos)
+            pos += step
+            rem -= step
+            nx, ny = ax + ux * pos, ay + uy * pos
+            if draw_on:
+                if not cur_run:
+                    cur_run = [(ax + ux * (pos - step), ay + uy * (pos - step))]
+                cur_run.append((nx, ny))
+            if rem <= 1e-12:
+                if draw_on and len(cur_run) >= 1:
+                    runs.append((cur_run, False))
+                    cur_run = []
+                pat_idx = (pat_idx + 1) % len(pattern)
+                draw_on = (pat_idx % 2) == 0
+                rem = pattern[pat_idx]
+                if draw_on and pos < seg_len - 1e-9:
+                    cur_run = [(nx, ny)]
+
+    if draw_on and len(cur_run) >= 1:
+        runs.append((cur_run, False))
+    return runs
+
+
+def _extend_square_caps(tpts: list[tuple[float, float]], half_w: float) -> list[tuple[float, float]]:
+    """Extend open polyline endpoints outward along their unit tangents for stroke-linecap='square'."""
+    if len(tpts) < 2 or half_w <= 0.0:
+        return tpts
+    out = list(tpts)
+    for i in range(1, len(out)):
+        dx, dy = out[i][0] - out[0][0], out[i][1] - out[0][1]
+        mag = math.hypot(dx, dy)
+        if mag > 1e-6:
+            out[0] = (out[0][0] - (dx / mag) * half_w, out[0][1] - (dy / mag) * half_w)
+            break
+    for i in range(len(out) - 2, -1, -1):
+        dx, dy = out[-1][0] - out[i][0], out[-1][1] - out[i][1]
+        mag = math.hypot(dx, dy)
+        if mag > 1e-6:
+            out[-1] = (out[-1][0] + (dx / mag) * half_w, out[-1][1] + (dy / mag) * half_w)
+            break
+    return out
+
+
 def rasterize_blobster_svg(svg_text: str, out_size: int = 256, supersample: int = 4) -> Image.Image:
     """Rasterize a validated OpenClaw Blobster SVG to an RGBA Image using pure Pillow."""
     _require_pillow()
@@ -544,23 +791,6 @@ def rasterize_blobster_svg(svg_text: str, out_size: int = 256, supersample: int 
     sx = ss_px / vb_w
     sy = ss_px / vb_h
     root_mat: Matrix2D = (sx, 0.0, 0.0, sy, -vb_x * sx, -vb_y * sy)
-
-    # Collect clipPath polygons in supersampled coordinates
-    clip_masks: dict[str, Image.Image] = {}
-    for elem in root.iter():
-        tag = elem.tag.split("}")[-1]
-        if tag == "clipPath" and elem.attrib.get("id"):
-            cid = elem.attrib["id"]
-            mask = Image.new("L", (ss_px, ss_px), 0)
-            mdraw = ImageDraw.Draw(mask)
-            for child in elem:
-                ctag = child.tag.split("}")[-1]
-                if ctag == "path" and child.attrib.get("d"):
-                    for pts, _ in _parse_svg_path_subpaths(child.attrib["d"]):
-                        tpts = [_mat_apply(root_mat, px, py) for px, py in pts]
-                        if len(tpts) >= 3:
-                            mdraw.polygon(tpts, fill=255)
-            clip_masks[cid] = mask
 
     def extract_subpaths(elem: ET.Element, tag: str) -> list[tuple[list[tuple[float, float]], bool]]:
         a = elem.attrib
@@ -593,24 +823,74 @@ def rasterize_blobster_svg(svg_text: str, out_size: int = 256, supersample: int 
             return [(pts, False)] if pts else []
         return []
 
+    # Collect clipPath masks in supersampled coordinates (honoring clip-rule & transforms)
+    clip_masks: dict[str, Image.Image] = {}
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1]
+        if tag == "clipPath" and elem.attrib.get("id"):
+            cid = elem.attrib["id"]
+            mask = Image.new("L", (ss_px, ss_px), 0)
+            base_clip_mat = (
+                _mat_mul(root_mat, _parse_transform(elem.attrib["transform"]))
+                if "transform" in elem.attrib
+                else root_mat
+            )
+            inherited_clip_rule = elem.attrib.get("clip-rule", "nonzero")
+            for child in elem:
+                ctag = child.tag.split("}")[-1]
+                if ctag in SHAPE_TAGS and ctag != "line":
+                    c_mat = (
+                        _mat_mul(base_clip_mat, _parse_transform(child.attrib["transform"]))
+                        if "transform" in child.attrib
+                        else base_clip_mat
+                    )
+                    c_rule = child.attrib.get("clip-rule", inherited_clip_rule)
+                    c_polys = [
+                        [_mat_apply(c_mat, px, py) for px, py in pts]
+                        for pts, _ in extract_subpaths(child, ctag)
+                        if len(pts) >= 3
+                    ]
+                    fill_res = _render_fill_mask(ss_px, c_polys, c_rule)
+                    if fill_res is not None:
+                        sub_mask, (mx, my) = fill_res
+                        mask.paste(255, (mx, my), sub_mask)
+            clip_masks[cid] = mask
+
+    inheritable_attrs = (
+        "fill",
+        "stroke",
+        "stroke-width",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "stroke-miterlimit",
+        "stroke-dasharray",
+        "stroke-dashoffset",
+        "fill-rule",
+        "clip-rule",
+        "fill-opacity",
+        "stroke-opacity",
+    )
+
     def draw_node(target: Image.Image, elem: ET.Element, mat: Matrix2D, inherited: dict[str, str]) -> None:
         tag = elem.tag.split("}")[-1]
         if tag in ("metadata", "title", "desc", "defs", "clipPath"):
             return
 
+        elem_opacity = float(elem.attrib.get("opacity", "1.0"))
+        if elem_opacity <= 0.0:
+            return
+
         style = dict(inherited)
-        for k in ("fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"):
+        for k in inheritable_attrs:
             if k in elem.attrib:
                 style[k] = elem.attrib[k]
 
         cur_mat = _mat_mul(mat, _parse_transform(elem.attrib["transform"])) if "transform" in elem.attrib else mat
-        node_opacity = float(elem.attrib.get("opacity", "1.0")) * float(inherited.get("_opacity", "1.0"))
-        style["_opacity"] = str(node_opacity)
 
         clip_attr = elem.attrib.get("clip-path", "")
         clip_id = clip_attr[5:-1] if clip_attr.startswith("url(#") and clip_attr.endswith(")") else None
-
-        dest_img = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0)) if clip_id in clip_masks else target
+        needs_offscreen = (clip_id in clip_masks) or (elem_opacity < 1.0)
+        dest_img = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0)) if needs_offscreen else target
 
         if tag == "g":
             for child in elem:
@@ -620,40 +900,84 @@ def rasterize_blobster_svg(svg_text: str, out_size: int = 256, supersample: int 
             default_fill = "none" if tag == "line" else "#000000"
             fill_str = style.get("fill", default_fill)
             stroke_str = style.get("stroke", "none")
-            fill_op = float(elem.attrib.get("fill-opacity", "1.0")) * node_opacity
-            stroke_op = float(elem.attrib.get("stroke-opacity", "1.0")) * node_opacity
+            fill_op = float(style.get("fill-opacity", "1.0"))
+            stroke_op = float(style.get("stroke-opacity", "1.0"))
             fill_rgba = _hex_to_rgba(fill_str, fill_op)
             stroke_rgba = _hex_to_rgba(stroke_str, stroke_op)
+            fill_rule = style.get("fill-rule", "nonzero")
             sw_units = float(style.get("stroke-width", "1.0"))
-            mat_scale = math.hypot(cur_mat[0], cur_mat[1])
+            mat_scale = (math.hypot(cur_mat[0], cur_mat[1]) + math.hypot(cur_mat[2], cur_mat[3])) / 2.0
             sw_px = max(1, int(round(sw_units * mat_scale)))
             linecap = style.get("stroke-linecap", "butt")
+            dasharray_raw = style.get("stroke-dasharray", "none")
+            dashoffset_units = float(style.get("stroke-dashoffset", "0.0"))
+            dashes = (
+                [float(n) for n in NUMBER_RE.findall(dasharray_raw)]
+                if dasharray_raw and dasharray_raw != "none"
+                else []
+            )
 
-            if fill_rgba or stroke_rgba:
-                layer = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
-                ldraw = ImageDraw.Draw(layer)
+            if fill_rgba and tag != "line":
+                fill_polys = [
+                    [_mat_apply(cur_mat, px, py) for px, py in pts]
+                    for pts, _ in subpaths
+                    if len(pts) >= 3
+                ]
+                fill_res = _render_fill_mask(ss_px, fill_polys, fill_rule)
+                if fill_res is not None:
+                    f_mask, (fox, foy) = fill_res
+                    fill_layer = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
+                    fill_layer.paste(Image.new("RGBA", f_mask.size, fill_rgba), (fox, foy), f_mask)
+                    dest_img.alpha_composite(fill_layer)
+
+            if stroke_rgba and sw_units > 0.0:
+                stroke_layer = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
+                sdraw = ImageDraw.Draw(stroke_layer)
+                rad = sw_px / 2.0
                 for pts, closed in subpaths:
-                    tpts = [_mat_apply(cur_mat, px, py) for px, py in pts]
-                    if fill_rgba and len(tpts) >= 3 and tag != "line":
-                        ldraw.polygon(tpts, fill=fill_rgba)
-                    if stroke_rgba and len(tpts) >= 2 and sw_units > 0:
-                        ldraw.line(tpts, fill=stroke_rgba, width=sw_px, joint="curve")
-                        if linecap == "round" or closed:
-                            rad = sw_px / 2.0
-                            cap_pts = tpts if closed else [tpts[0], tpts[-1]]
-                            for cx_p, cy_p in cap_pts:
-                                ldraw.ellipse((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
-                dest_img.alpha_composite(layer)
+                    stroke_runs = (
+                        _dash_polyline(pts, closed, dashes, dashoffset_units)
+                        if dashes and sum(dashes) > 1e-9
+                        else [(pts, closed)]
+                    )
+                    for r_pts, r_closed in stroke_runs:
+                        tpts = [_mat_apply(cur_mat, px, py) for px, py in r_pts]
+                        if not tpts:
+                            continue
+                        if len(tpts) == 1 or (
+                            len(tpts) == 2
+                            and abs(tpts[0][0] - tpts[1][0]) < 1e-6
+                            and abs(tpts[0][1] - tpts[1][1]) < 1e-6
+                        ):
+                            if linecap == "round":
+                                cx_p, cy_p = tpts[0]
+                                sdraw.ellipse((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
+                            elif linecap == "square":
+                                cx_p, cy_p = tpts[0]
+                                sdraw.rectangle((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
+                            continue
+                        draw_pts = (
+                            _extend_square_caps(tpts, rad)
+                            if (linecap == "square" and not r_closed)
+                            else (tpts + [tpts[1]] if (r_closed and len(tpts) >= 3) else tpts)
+                        )
+                        sdraw.line(draw_pts, fill=stroke_rgba, width=sw_px, joint="curve")
+                        if linecap == "round" and not r_closed:
+                            for cx_p, cy_p in (tpts[0], tpts[-1]):
+                                sdraw.ellipse((cx_p - rad, cy_p - rad, cx_p + rad, cy_p + rad), fill=stroke_rgba)
+                dest_img.alpha_composite(stroke_layer)
 
-        if clip_id in clip_masks:
+        if needs_offscreen:
             r_ch, g_ch, b_ch, a_ch = dest_img.split()
-            clipped_a = Image.composite(a_ch, Image.new("L", (ss_px, ss_px), 0), clip_masks[clip_id])
-            dest_img = Image.merge("RGBA", (r_ch, g_ch, b_ch, clipped_a))
-            target.alpha_composite(dest_img)
+            if elem_opacity < 1.0:
+                a_ch = a_ch.point(lambda p, op=elem_opacity: int(round(p * op)))
+            if clip_id in clip_masks:
+                a_ch = Image.composite(a_ch, Image.new("L", (ss_px, ss_px), 0), clip_masks[clip_id])
+            target.alpha_composite(Image.merge("RGBA", (r_ch, g_ch, b_ch, a_ch)))
 
     canvas = Image.new("RGBA", (ss_px, ss_px), (0, 0, 0, 0))
     for child in root:
-        draw_node(canvas, child, root_mat, {"_opacity": "1.0"})
+        draw_node(canvas, child, root_mat, {})
 
     if ss_px != out_size:
         return canvas.resize((out_size, out_size), Image.Resampling.LANCZOS)
@@ -917,13 +1241,13 @@ def _infer_pack_id(avatars_dir: Path) -> str:
     return resolved.name or "blobster"
 
 
-def _count_svg_viewbox_overflow_shapes(svg_text: str) -> int:
-    """Count visible non-defs SVG shapes whose transformed geometry extends past the viewBox."""
+def _count_svg_viewbox_overflow_shapes(svg_text: str, border_inset: float = 144.0 / 256.0) -> int:
+    """Count visible non-defs SVG shapes extending past safe viewBox bounds or clipping away completely."""
     root = ET.fromstring(svg_text)
     vb_parts = [float(x) for x in root.attrib.get("viewBox", "-12 -18 144 144").split()]
     vb_x, vb_y, vb_w, vb_h = vb_parts if len(vb_parts) == 4 else (-12.0, -18.0, 144.0, 144.0)
-    min_x, max_x = vb_x, vb_x + vb_w
-    min_y, max_y = vb_y, vb_y + vb_h
+    min_x, max_x = vb_x + border_inset, vb_x + vb_w - border_inset
+    min_y, max_y = vb_y + border_inset, vb_y + vb_h - border_inset
     overflow_shapes = 0
 
     def shape_subpaths(elem: ET.Element, tag: str) -> list[list[tuple[float, float]]]:
@@ -932,18 +1256,18 @@ def _count_svg_viewbox_overflow_shapes(svg_text: str) -> int:
             return [pts for pts, _ in _parse_svg_path_subpaths(a.get("d", "")) if pts]
         if tag == "circle":
             cx, cy, r = float(a.get("cx", 0)), float(a.get("cy", 0)), float(a.get("r", 0))
-            return [_sample_ellipse_pts(cx, cy, r, r)] if r > 0 else []
+            return [_sample_ellipse_pts(cx, cy, r, r)] if r > 0 else [[(cx, cy)]]
         if tag == "ellipse":
             cx, cy = float(a.get("cx", 0)), float(a.get("cy", 0))
             rx, ry = float(a.get("rx", 0)), float(a.get("ry", 0))
-            return [_sample_ellipse_pts(cx, cy, rx, ry)] if rx > 0 and ry > 0 else []
+            return [_sample_ellipse_pts(cx, cy, rx, ry)] if rx > 0 and ry > 0 else [[(cx, cy)]]
         if tag == "rect":
             x, y = float(a.get("x", 0)), float(a.get("y", 0))
             w, h = float(a.get("width", 0)), float(a.get("height", 0))
             rx_raw, ry_raw = a.get("rx"), a.get("ry")
             rx = float(rx_raw) if rx_raw is not None else (float(ry_raw) if ry_raw is not None else 0.0)
             ry = float(ry_raw) if ry_raw is not None else rx
-            return [_sample_rect_pts(x, y, w, h, rx, ry)] if w > 0 and h > 0 else []
+            return [_sample_rect_pts(x, y, w, h, rx, ry)] if w > 0 and h > 0 else [[(x, y)]]
         if tag == "line":
             return [[(float(a.get("x1", 0)), float(a.get("y1", 0))), (float(a.get("x2", 0)), float(a.get("y2", 0)))]]
         if tag in ("polyline", "polygon"):
@@ -958,7 +1282,7 @@ def _count_svg_viewbox_overflow_shapes(svg_text: str) -> int:
         if tag in ("metadata", "title", "desc", "defs", "clipPath"):
             return
         style = dict(inherited)
-        for k in ("fill", "stroke", "stroke-width"):
+        for k in ("fill", "stroke", "stroke-width", "stroke-linecap"):
             if k in elem.attrib:
                 style[k] = elem.attrib[k]
         cur_mat = _mat_mul(mat, _parse_transform(elem.attrib["transform"])) if "transform" in elem.attrib else mat
@@ -966,25 +1290,92 @@ def _count_svg_viewbox_overflow_shapes(svg_text: str) -> int:
         if tag == "g":
             for child in elem:
                 walk(child, cur_mat, style, is_body_clipped)
-        elif tag in SHAPE_TAGS and not is_body_clipped:
+        elif tag in SHAPE_TAGS:
             stroke_str = style.get("stroke", "none")
-            has_stroke = bool(stroke_str and stroke_str != "none")
-            pad = (float(style.get("stroke-width", "1.0")) * math.hypot(cur_mat[0], cur_mat[1]) / 2.0) if has_stroke else 0.0
+            sw_val = float(style.get("stroke-width", "1.0"))
+            has_stroke = bool(stroke_str and stroke_str != "none" and sw_val > 0.0)
+            max_scale = max(math.hypot(cur_mat[0], cur_mat[1]), math.hypot(cur_mat[2], cur_mat[3]))
+            cap_mult = math.sqrt(2.0) if style.get("stroke-linecap") == "square" else 1.0
+            pad = (sw_val * max_scale / 2.0) * cap_mult if has_stroke else 0.0
             out = False
+            s_min_x, s_max_x = float("inf"), float("-inf")
+            s_min_y, s_max_y = float("inf"), float("-inf")
+            has_pts = False
             for pts in shape_subpaths(elem, tag):
                 for px, py in pts:
+                    has_pts = True
                     tx, ty = _mat_apply(cur_mat, px, py)
-                    if tx - pad < min_x - 1e-6 or tx + pad > max_x + 1e-6 or ty - pad < min_y - 1e-6 or ty + pad > max_y + 1e-6:
+                    s_min_x = min(s_min_x, tx)
+                    s_max_x = max(s_max_x, tx)
+                    s_min_y = min(s_min_y, ty)
+                    s_max_y = max(s_max_y, ty)
+                    edge_pad = 0.0 if is_body_clipped else pad
+                    if (
+                        tx - edge_pad < min_x - 1e-6
+                        or tx + edge_pad > max_x + 1e-6
+                        or ty - edge_pad < min_y - 1e-6
+                        or ty + edge_pad > max_y + 1e-6
+                    ):
                         out = True
                         break
                 if out:
                     break
+            if not out and is_body_clipped and has_pts:
+                # Shapes inside shell_overlay must intersect BODY_PATH bbox (x=16..104, y=8..104)
+                if (
+                    s_max_x + pad < 16.0
+                    or s_min_x - pad > 104.0
+                    or s_max_y + pad < 8.0
+                    or s_min_y - pad > 104.0
+                ):
+                    out = True
             if out:
                 overflow_shapes += 1
 
     for child in root:
         walk(child, (1.0, 0.0, 0.0, 1.0, 0.0, 0.0), {}, False)
     return overflow_shapes
+
+
+def validate_compiled_blobster_svg(svg_text: str) -> dict[str, int]:
+    """Enforce Blobster SVG byte budget, dimensions, <= 24 custom shape cap, and safe canvas bounds."""
+    svg_bytes = len(svg_text.encode("utf-8"))
+    if svg_bytes > OPENCLAW_AVATAR_MAX_BYTES:
+        raise ValueError(f"Blobster SVG ({svg_bytes}B) exceeds 2 MiB limit")
+    root = ET.fromstring(svg_text)
+    if root.attrib.get("viewBox") != "-12 -18 144 144":
+        raise ValueError("Blobster SVG viewBox must be '-12 -18 144 144'")
+    if root.attrib.get("width") != "256" or root.attrib.get("height") != "256":
+        raise ValueError("Blobster SVG dimensions must be 256x256")
+    defs_shapes = sum(
+        1
+        for d in root.findall("{http://www.w3.org/2000/svg}defs") + root.findall("defs")
+        for e in d.iter()
+        if e.tag.split("}")[-1] in SHAPE_TAGS
+    )
+    all_shapes = sum(1 for e in root.iter() if e.tag.split("}")[-1] in SHAPE_TAGS)
+    total_svg_shapes = max(0, all_shapes - defs_shapes)
+    custom_svg_shapes = max(0, total_svg_shapes - BASE_TEMPLATE_SHAPE_COUNT)
+    if custom_svg_shapes > MAX_CUSTOM_SVG_SHAPES:
+        raise ValueError(
+            f"Blobster SVG has {custom_svg_shapes} custom vector shapes (exceeds {MAX_CUSTOM_SVG_SHAPES} 24px legibility cap)"
+        )
+    overflow_cnt = _count_svg_viewbox_overflow_shapes(svg_text)
+    if overflow_cnt > 0:
+        raise ValueError(
+            f"Blobster SVG has {overflow_cnt} vector shape(s) extending outside viewBox '-12 -18 144 144' safe bounds or clipping completely"
+        )
+    if _HAS_PILLOW:
+        m_svg = analyze_frame_qa(rasterize_blobster_svg(svg_text, out_size=256, supersample=4))
+        if m_svg["borderClipPixels"] > 0:
+            raise ValueError(
+                f"Blobster SVG clips {m_svg['borderClipPixels']} pixel(s) on the outer 1px 256x256 frame boundary"
+            )
+    return {
+        "svgBytes": svg_bytes,
+        "totalSvgShapes": total_svg_shapes,
+        "customSvgShapes": custom_svg_shapes,
+    }
 
 
 def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, Any]:
@@ -1510,11 +1901,27 @@ def main(argv: list[str] | None = None) -> int:
         if not args.design.is_file():
             print(f"error: design JSON not found: {args.design}", file=sys.stderr)
             return 2
-        design = json.loads(args.design.read_text(encoding="utf-8"))
-        svg_text = render_blobster_svg(design)
+        try:
+            design = json.loads(args.design.read_text(encoding="utf-8"))
+            svg_text = render_blobster_svg(design)
+            svg_meta = validate_compiled_blobster_svg(svg_text)
+        except (ValueError, json.JSONDecodeError, ET.ParseError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(svg_text, encoding="utf-8")
-        print(json.dumps({"ok": True, "svg": str(args.out), "bytes": args.out.stat().st_size}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "svg": str(args.out),
+                    "bytes": args.out.stat().st_size,
+                    "customSvgShapes": svg_meta["customSvgShapes"],
+                    "totalSvgShapes": svg_meta["totalSvgShapes"],
+                },
+                indent=2,
+            )
+        )
         return 0
 
     if args.cmd in ("tier1", "gifs", "qa"):
@@ -1529,16 +1936,20 @@ def main(argv: list[str] | None = None) -> int:
             if not req_p.is_file():
                 print(f"error: {label} file not found: {req_p}", file=sys.stderr)
                 return 2
-        res = compile_tier1_pack(
-            design_json_path=args.design,
-            hero_source_path=args.hero,
-            sheet_2x2_path=args.sheet,
-            output_dir=args.out_dir,
-            gif_size=args.gif_size,
-            qa_out_path=args.qa_out,
-            max_spill_pct=args.max_spill_pct,
-            omit_gifs=args.omit_gifs,
-        )
+        try:
+            res = compile_tier1_pack(
+                design_json_path=args.design,
+                hero_source_path=args.hero,
+                sheet_2x2_path=args.sheet,
+                output_dir=args.out_dir,
+                gif_size=args.gif_size,
+                qa_out_path=args.qa_out,
+                max_spill_pct=args.max_spill_pct,
+                omit_gifs=args.omit_gifs,
+            )
+        except (ValueError, json.JSONDecodeError, ET.ParseError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         print(json.dumps(res, indent=2))
         if not res["ok"]:
             for err in res["qa"]["errors"]:
