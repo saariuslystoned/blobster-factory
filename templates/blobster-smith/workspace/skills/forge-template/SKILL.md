@@ -58,7 +58,8 @@ Every forged template directory must contain only declared files (`excludedPaths
 ```text
 templates/<agent-id>/
 ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } } — ZERO scripts!
-├── CLAW.md                   # Pure YAML frontmatter (schemaVersion: 1); NO body text when SOUL.md is mapped
+├── CLAW.md                   # Pure YAML frontmatter (schemaVersion: 1, optional 1..3 ClawHub categories); NO body text when SOUL.md is mapped
+│                             # Allowed ClawHub categories: personal, health, travel, productivity, research, engineering, governance, operations, finance, sales, product, people
 ├── profiles/
 │   └── openclaw.yml          # schemaVersion: 1, concrete agent.tools.allow, fs.workspaceOnly: true
 └── workspace/

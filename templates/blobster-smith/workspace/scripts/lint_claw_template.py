@@ -46,6 +46,20 @@ ENV_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Z_][A-Z0-9_]*\}$")
 WINDOWS_INVALID_PATH_CHARS_RE = re.compile(r'[<>:"|?*]')
 WINDOWS_RESERVED_SEGMENT_RE = re.compile(r"^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$", re.IGNORECASE)
 ALLOWED_BOOTSTRAP_FILE_NAMES = {"AGENTS.md", "SOUL.md", "IDENTITY.md", "TOOLS.md", "HEARTBEAT.md"}
+CLAWHUB_TEMPLATE_CATEGORIES = {
+    "personal",
+    "health",
+    "travel",
+    "productivity",
+    "research",
+    "engineering",
+    "governance",
+    "operations",
+    "finance",
+    "sales",
+    "product",
+    "people",
+}
 
 TEXT_SUFFIXES = {
     ".md", ".json", ".yml", ".yaml", ".txt", ".py", ".sh", ".js", ".mjs", ".cjs", ".ts", ".toml", ".svg"
@@ -670,6 +684,32 @@ def lint_template_dir(tdir: Path, *, strict_trust: bool = True) -> dict[str, Any
             diagnostics.append(_diag("invalid_agent_id", "CLAW.md.agent.id", f"Invalid agent.id: {aid!r}"))
         if not isinstance(aname, str) or not aname.strip():
             diagnostics.append(_diag("invalid_agent_name", "CLAW.md.agent.name", "agent.name must be non-empty"))
+
+    if "categories" in manifest:
+        cats = manifest.get("categories")
+        if (
+            not isinstance(cats, list)
+            or not (1 <= len(cats) <= 3)
+            or any(not isinstance(c, str) for c in cats)
+            or len(set(cats)) != len(cats)
+        ):
+            diagnostics.append(
+                _diag(
+                    "invalid_categories",
+                    "CLAW.md.categories",
+                    "CLAW.md categories must be 1 to 3 unique lowercase ClawHub category slugs.",
+                )
+            )
+        else:
+            unsupported_cats = [c for c in cats if c not in CLAWHUB_TEMPLATE_CATEGORIES]
+            if unsupported_cats:
+                diagnostics.append(
+                    _diag(
+                        "invalid_categories",
+                        "CLAW.md.categories",
+                        f"Unsupported ClawHub template category slug(s) {unsupported_cats}; allowed: {sorted(CLAWHUB_TEMPLATE_CATEGORIES)}",
+                    )
+                )
 
     metadata_cfg = manifest.get("metadata")
     if isinstance(metadata_cfg, dict) and "openclaw.config" in metadata_cfg:

@@ -10,7 +10,7 @@ agent:
     emoji: "🔨"
     avatar: "avatars/blobster.svg"
 categories:
-  - "developer-tools"
+  - "engineering"
   - "productivity"
 metadata:
   factory.archetype: "C1 · Anvil Forgemaster"

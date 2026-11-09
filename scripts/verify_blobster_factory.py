@@ -33,7 +33,12 @@ from compile_blobster_pack import (  # noqa: E402
     rasterize_blobster_svg,
     render_blobster_svg,
 )
-from lint_claw_template import TEXT_SUFFIXES, is_valid_5_field_cron, lint_template_dir  # noqa: E402
+from lint_claw_template import (  # noqa: E402
+    CLAWHUB_TEMPLATE_CATEGORIES,
+    TEXT_SUFFIXES,
+    is_valid_5_field_cron,
+    lint_template_dir,
+)
 
 ALLOWED_BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -170,6 +175,8 @@ def verify_compiler_and_linter_invariants() -> list[str]:
     for invalid_expr in ("0 9 * * 5-0", "0 9 * * */8", "5/15 * * * *", "0 0 31 2 *", "0 9 * * FRIL", "0 9 * * 5L"):
         if is_valid_5_field_cron(invalid_expr):
             errors.append(f"is_valid_5_field_cron accepted invalid schedule: {invalid_expr}")
+    if "developer-tools" in CLAWHUB_TEMPLATE_CATEGORIES or len(CLAWHUB_TEMPLATE_CATEGORIES) != 12:
+        errors.append("CLAWHUB_TEMPLATE_CATEGORIES must match the 12 official ClawHub template categories")
     return errors
 
 

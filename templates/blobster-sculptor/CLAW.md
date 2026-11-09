@@ -10,9 +10,9 @@ agent:
     emoji: "🎨"
     avatar: "avatars/blobster.svg"
 categories:
-  - "design"
-  - "creative"
-  - "developer-tools"
+  - "product"
+  - "engineering"
+  - "productivity"
 metadata:
   factory.archetype: "C5 · Blueprint Toymaker & Painter"
   factory.nickname: "Molt"
