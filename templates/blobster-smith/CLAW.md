@@ -27,6 +27,8 @@ workspace:
     TOOLS.md:
       source: "workspace/TOOLS.md"
   files:
+    - source: "assets/icon.png"
+      path: "assets/icon.png"
     - source: "workspace/avatars/blobster.svg"
       path: "avatars/blobster.svg"
     - source: "workspace/avatars/blobster-design.json"
@@ -37,6 +39,12 @@ workspace:
       path: "avatars/sprite-2x2.png"
     - source: "workspace/avatars/cutout-256.png"
       path: "avatars/cutout-256.png"
+    - source: "workspace/defaults/blobster.svg"
+      path: "defaults/blobster.svg"
+    - source: "workspace/defaults/blobster-design.json"
+      path: "defaults/blobster-design.json"
+    - source: "workspace/defaults/icon.png"
+      path: "defaults/icon.png"
     - source: "workspace/scripts/lint_claw_template.py"
       path: "scripts/lint_claw_template.py"
     - source: "workspace/skills/forge-template/SKILL.md"

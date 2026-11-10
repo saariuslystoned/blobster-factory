@@ -7,14 +7,18 @@ description: Forge, sanitize, and lint a complete solo-ready OpenClaw Agent Temp
 
 Use this skill whenever creating, crystallizing, or hardening an **OpenClaw Agent Template** (`templates/<agent-id>/`). Every mode outputs a complete upstream-valid OpenClaw Template that works out-of-the-box on any local/solo OpenClaw install (`openclaw templates validate`, `dev`, `build`, `add`) with zero shared-gateway lock-in.
 
-## Step 0: Pick the Right Starting Mode
+## Step 0: Pick the Right Starting Mode & Lock Name + Description
+
+Across **all three modes**, always give the user a clear chance before writing files to choose or confirm:
+- **Bot Name** (`agent.name`, deriving a clean lowercase `agent.id` slug like `release-radar` automatically unless they specify one)
+- **Brief Description** (`1–2` plain sentences for `CLAW.md` `agent.description` and ClawHub cards—draft a crisp suggestion if they haven't provided one yet so they can approve or edit quickly)
 
 ### Mode 1 — Start From an Idea (*One Job Per Bot*)
 
-1. Ask at most **2–3 plain-English questions**:
+1. Ask one short, plain-English intake round:
+   - **Name & Brief Description**: What do you want to call this bot, and how would you describe it in one sentence?
    - **Job**: What concrete output does this bot produce (briefing, triage queue, PR review, draft reply)?
-   - **Trigger**: Interactive local chat, scheduled 5-field `cronJobs`, or opt-in room `@mention`?
-   - **Approval Gate**: Which actions stay draft-first until a human approves?
+   - **Trigger & Approval Gate**: Interactive local chat, scheduled 5-field `cronJobs`, or opt-in room `@mention`—and which actions stay draft-first until a human approves?
 2. **Keep One Job Per Bot**:
    - Default to **1 focused standalone OpenClaw Template**.
    - If the user bundles 3–4 separate jobs into one mega-prompt, recommend splitting into **2–3 single-purpose Templates** aligned with OpenClaw's role presets (`coordinator`, `researcher`, `writer`, `reviewer`).
@@ -60,23 +64,27 @@ templates/<agent-id>/
 ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } } — ZERO scripts!
 ├── CLAW.md                   # Pure YAML frontmatter (schemaVersion: 1, optional 1..3 ClawHub categories); NO body text when SOUL.md is mapped
 │                             # Allowed ClawHub categories: personal, health, travel, productivity, research, engineering, governance, operations, finance, sales, product, people
+├── BOOTSTRAP.md              # Optional seed-once first-run onboarding questions (NEVER listed in workspace.files)
+├── assets/
+│   └── icon.png              # 256x256 ClawHub catalog card PNG (<= 512 KiB; copied from defaults/icon.png until sculpted)
 ├── profiles/
 │   └── openclaw.yml          # schemaVersion: 1, concrete agent.tools.allow, fs.workspaceOnly: true, sandbox.mode: "non-main"
 └── workspace/
     ├── AGENTS.md             # Mission, workflow rules, draft-first gate, untrusted input boundary
     ├── SOUL.md               # Persona, voice, and craft standards
-    ├── IDENTITY.md           # Archetype, palette, and avatar roles (blobster.svg vs README/Codex Pets assets)
+    ├── IDENTITY.md           # Archetype, palette, and avatar roles (required SVG/icon vs optional fun extras)
     ├── TOOLS.md              # Scoped tool usage & secret-handling guardrails
-    ├── avatars/              # Compiled via blobster-sculptor / scripts/compile_blobster_pack.py (< 1 MiB per managed file)
-    │   ├── blobster-design.json
-    │   ├── blobster.svg      # Single live avatar rendered inside OpenClaw chat today
-    │   ├── hero-512.png      # 3D vinyl hero for GitHub/ClawHub READMEs & showcase cards
-    │   ├── sprite-2x2.png    # Single-frame 2x2 RGBA sheet (hydrates blobster-{idle,wave}.gif for READMEs & Codex Pets)
-    │   └── cutout-256.png
+    ├── avatars/              # Upstream OpenClaw only requires blobster.svg; 3D/GIF extras are optional fun add-ons!
+    │   ├── blobster-design.json  # Copied verbatim from defaults/blobster-design.json (keep in sync with blobster.svg!)
+    │   └── blobster.svg          # Copied verbatim from defaults/blobster.svg ("Proto-Blob: Fresh Out of the Box")
     └── skills/
         └── <skill-name>/
             └── SKILL.md
 ```
+
+> **Default Starter Art & Optional Extras**:
+> - Copy `defaults/blobster.svg` -> `templates/<agent-id>/workspace/avatars/blobster.svg`, `defaults/blobster-design.json` -> `templates/<agent-id>/workspace/avatars/blobster-design.json` (**verbatim**—do not edit `blobster-design.json` unless regenerating `blobster.svg` with `compile_blobster_pack.py svg` so `<title>`/`<desc>` stay synchronized), and `defaults/icon.png` -> `templates/<agent-id>/assets/icon.png` (mapped in `CLAW.md` as `source: "assets/icon.png"`, `path: "assets/icon.png"`).
+> - Upstream OpenClaw and ClawHub **only** require `avatars/blobster.svg` + `assets/icon.png`. Do **not** fabricate placeholder `hero-512.png`, `sprite-2x2.png`, or `cutout-256.png` files in Smith—those are optional showcase extras created later with **`Blobster Sculptor` (`blobster-sculptor`)**.
 
 > **Schedule & Sandbox Notes**:
 > - **One intentional schedule (no overlapping `HEARTBEAT.md`)**: Default authoring/tool templates to **on-demand execution**, or declare **one** intentional `cronJobs` entry (using strip-chomped `|-` or `>-` if multiline so there is no trailing newline). Do **not** bundle a redundant 30-minute `heartbeat:` + `HEARTBEAT.md` alongside `cronJobs`—OpenClaw imports legacy heartbeat files as a second recurring automation. Include `HEARTBEAT.md` only when an explicit idle-check checklist is specifically requested.
@@ -103,3 +111,11 @@ python3 scripts/lint_claw_template.py templates/<agent-id>
 # When running inside the blobster-factory workshop repo:
 test ! -f scripts/verify_blobster_factory.py || python3 scripts/verify_blobster_factory.py
 ```
+
+## Step 4: Present the Forged Files & Hand Off to Blobster Sculptor
+
+When presenting the completed template to the user:
+1. Summarize the forged **Bot Name**, **`agent.id`**, **Brief Description**, bounded tool profile, schedule/trigger, and validation result.
+2. Point out that `templates/<agent-id>/` already includes the stock **"Proto-Blob (Fresh Out of the Box)"** `avatars/blobster.svg` + `assets/icon.png`—the only art files upstream OpenClaw and ClawHub require—so they can load or publish it right away.
+3. Explicitly tell the user:
+   > *"If you want to generate custom assets for your agent (a custom `24px`-legible `.svg` + ClawHub icon, plus optional 3D vinyl renders and looping GIFs just for fun, READMEs, websites, or Codex Pets), use the **Blobster Sculptor (`blobster-sculptor`)** template next!"*

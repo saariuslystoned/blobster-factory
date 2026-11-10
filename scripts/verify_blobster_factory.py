@@ -34,7 +34,10 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from compile_blobster_pack import (  # noqa: E402
+    CLAWHUB_ICON_MAX_BYTES,
+    analyze_frame_qa,
     analyze_pack_qa,
+    compile_clawhub_icon_png,
     compile_tier1_pack,
     rasterize_blobster_svg,
     render_blobster_svg,
@@ -121,18 +124,58 @@ def verify_template_dir(tdir: Path) -> tuple[list[str], dict[str, Any]]:
             if getattr(bim, "n_frames", 1) != 1:
                 errors.append(f"{tdir.name}: [binary_policy] {rel}: multi-frame binary images are not permitted in Git template tree")
 
+    icon_path = tdir / "assets" / "icon.png"
+    icon_bytes = 0
+    if not icon_path.is_file():
+        errors.append(f"{tdir.name}: [clawhub_icon] Missing assets/icon.png (256x256 PNG <= 512 KiB)")
+    else:
+        icon_bytes = icon_path.stat().st_size
+        if icon_bytes > CLAWHUB_ICON_MAX_BYTES:
+            errors.append(
+                f"{tdir.name}: [clawhub_icon] assets/icon.png ({icon_bytes}B) exceeds {CLAWHUB_ICON_MAX_BYTES}B (512 KiB)"
+            )
+        with Image.open(icon_path) as iim:
+            if iim.format != "PNG" or iim.size != (256, 256) or getattr(iim, "n_frames", 1) != 1:
+                errors.append(
+                    f"{tdir.name}: [clawhub_icon] assets/icon.png must be a single-frame 256x256 PNG, got {iim.format} {iim.size}"
+                )
+            im_qa = analyze_frame_qa(iim)
+            if im_qa["opaquePixels"] <= 0 or im_qa["borderClipPixels"] > 0:
+                errors.append(f"{tdir.name}: [clawhub_icon] assets/icon.png failed foreground/border-clip QA: {im_qa}")
+
+    # Determine whether this template declares full Tier 1 showcase extras or starter SVG-only art
+    claw_txt = (tdir / "CLAW.md").read_text(encoding="utf-8") if (tdir / "CLAW.md").is_file() else ""
+    requires_tier1 = 'factory.tier: "tier-1"' in claw_txt or "factory.tier: 'tier-1'" in claw_txt
+
     avatars_dir = tdir / "workspace" / "avatars"
-    qa_res = analyze_pack_qa(avatars_dir, max_spill_pct=1.5)
+    qa_res = analyze_pack_qa(avatars_dir, max_spill_pct=1.5, allow_svg_only=not requires_tier1)
     for qerr in qa_res["errors"]:
         errors.append(f"{tdir.name}: [avatar_qa] {qerr}")
+
+    if tdir.name == "blobster-smith":
+        defaults_dir = tdir / "workspace" / "defaults"
+        def_qa = analyze_pack_qa(defaults_dir, max_spill_pct=1.5, allow_svg_only=True)
+        for derr in def_qa["errors"]:
+            errors.append(f"{tdir.name}: [defaults_qa] {derr}")
+        def_icon = defaults_dir / "icon.png"
+        if not def_icon.is_file():
+            errors.append(f"{tdir.name}: [defaults_qa] Missing workspace/defaults/icon.png")
+        else:
+            if def_icon.stat().st_size > CLAWHUB_ICON_MAX_BYTES:
+                errors.append(f"{tdir.name}: [defaults_qa] defaults/icon.png exceeds 512 KiB")
+            with Image.open(def_icon) as dim:
+                if dim.format != "PNG" or dim.size != (256, 256) or getattr(dim, "n_frames", 1) != 1:
+                    errors.append(f"{tdir.name}: [defaults_qa] defaults/icon.png must be a single-frame 256x256 PNG")
 
     report = {
         "template": tdir.name,
         "ok": len(errors) == 0,
         "selectedFileCount": lint_res.get("selectedFileCount", 0),
         "excludedPaths": lint_res.get("excludedPaths", []),
+        "packMode": qa_res.get("packMode"),
         "animationSource": qa_res.get("animationSource"),
         "customSvgShapes": qa_res.get("customSvgShapes", 0),
+        "iconBytes": icon_bytes,
         "maxMagentaSpillPct": qa_res.get("maxMagentaSpillPct", 0.0),
         "maxBorderClipPixels": qa_res.get("maxBorderClipPixels", 0),
         "sprite2x2Bytes": qa_res.get("sprite2x2Bytes", 0),

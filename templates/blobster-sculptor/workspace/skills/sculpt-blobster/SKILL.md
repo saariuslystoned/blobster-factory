@@ -5,7 +5,9 @@ description: Design, surgically refine, compile, and QA-verify an OpenClaw Blobs
 
 # Sculpt Blobster (`sculpt-blobster`)
 
-Use this skill to craft, refine, compile, and visually verify the character pack for any **OpenClaw Agent Template** (`avatars/blobster.svg` is the single live avatar rendered inside OpenClaw chat today, while `hero-512.png`, `sprite-2x2.png`, `cutout-256.png`, and hydrated `blobster-idle.gif` / `blobster-wave.gif` power GitHub/ClawHub READMEs, showcase cards, and external desktop-pet apps such as **Codex Pets**).
+Use this skill to craft, refine, compile, and visually verify the character art for any **OpenClaw Agent Template**—including upgrading a template freshly forged by **`Blobster Smith` (`blobster-smith`)** from its default unpainted **"Proto-Blob (Fresh Out of the Box)"** starter avatar:
+- **Required by Upstream OpenClaw & ClawHub**: `avatars/blobster.svg` (`256×256` — the single live avatar rendered inside OpenClaw chat today) + `assets/icon.png` (`256×256` PNG `<= 512 KiB` for ClawHub catalog cards).
+- **Optional Fun Extras (for GitHub READMEs, Websites, Showcase Cards & Codex Pets)**: `hero-512.png`, `sprite-2x2.png`, `cutout-256.png`, and hydrated looping `blobster-idle.gif` / `blobster-wave.gif`.
 
 ## Prompt Rubric: Fresh Generate vs. Surgical Edit
 
@@ -52,11 +54,19 @@ When an existing hero or `2×2` sheet is 90% right and needs a targeted fix:
 1. **Author `<avatars-dir>/blobster-design.json`** (`version: 1`, `palette` 6-digit hex colors, 5 allowed SVG fragment layers — e.g. `avatars/blobster-design.json` in a standalone workspace or `templates/<id>/workspace/avatars/blobster-design.json` in a multi-template workshop repo).
 2. **Compile the Pack + Emit QA Contact Sheet** (use `--omit-gifs` for Git-tracked template `avatars/` folders so Git tracks single-frame `sprite-2x2.png` + `cutout-256.png`, and keep `--qa-out` in a `work/` or `proof/` path outside any `templates/<id>/` package root so `CLAW.md` maintains zero unlisted files):
    ```bash
+   # Required OpenClaw SVG + ClawHub catalog icon.png only (fast path):
+   python3 scripts/compile_blobster_pack.py svg \
+     --design <avatars-dir>/blobster-design.json \
+     --out <avatars-dir>/blobster.svg \
+     --icon-out <template-root>/assets/icon.png
+
+   # Or full Tier 1 showcase pack (SVG + ClawHub icon.png + optional 3D vinyl hero & 2x2 sheet):
    python3 scripts/compile_blobster_pack.py tier1 \
      --design <avatars-dir>/blobster-design.json \
      --hero work/hero.png \
      --sheet work/chromakey-2x2.png \
      --out-dir <avatars-dir> \
+     --icon-out <template-root>/assets/icon.png \
      --omit-gifs \
      --qa-out work/<id>-qa-contact-sheet.png
 

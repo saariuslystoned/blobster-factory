@@ -29,6 +29,8 @@ workspace:
     TOOLS.md:
       source: "workspace/TOOLS.md"
   files:
+    - source: "assets/icon.png"
+      path: "assets/icon.png"
     - source: "workspace/avatars/blobster.svg"
       path: "avatars/blobster.svg"
     - source: "workspace/avatars/blobster-design.json"
