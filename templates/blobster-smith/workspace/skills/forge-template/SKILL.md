@@ -1,15 +1,15 @@
 ---
 name: forge-template
-description: Forge, sanitize, and lint a complete solo-ready OpenClaw Agent Template (package.json, CLAW.md, profiles/openclaw.yml, workspace/, and skills) from an idea, a past session, or an API/CLI tool.
+description: Create, evolve, split, or retire solo-ready OpenClaw Agent Templates (package.json, CLAW.md, profiles/openclaw.yml, workspace/, and skills) across 4 lifecycle modes: from an idea, a past session, an API/CLI tool, or an overlapping bot to consolidate.
 ---
 
 # Forge Template (`forge-template`)
 
-Use this skill whenever creating, crystallizing, or hardening an **OpenClaw Agent Template** (`templates/<agent-id>/`). Every mode outputs a complete upstream-valid OpenClaw Template that works out-of-the-box on any local/solo OpenClaw install (`openclaw templates validate`, `dev`, `build`, `add`) with zero shared-gateway lock-in.
+Use this skill whenever creating, evolving, crystallizing, hardening, or retiring an **OpenClaw Agent Template** (`templates/<agent-id>/`). Every mode outputs a complete upstream-valid OpenClaw Template that works out-of-the-box on any local/solo OpenClaw install (`openclaw templates validate`, `dev`, `build`, `add`) with zero shared-gateway lock-in.
 
 ## Step 0: Pick the Right Starting Mode & Lock Name + Description
 
-Across **all three modes**, always give the user a clear chance before writing files to choose or confirm:
+Across **all four modes**, always give the user a clear chance before writing files to choose or confirm:
 - **Bot Name** (`agent.name`, deriving a clean lowercase `agent.id` slug like `release-radar` automatically unless they specify one)
 - **Brief Description** (`1–2` plain sentences for `CLAW.md` `agent.description` and ClawHub cards—draft a crisp suggestion if they haven't provided one yet so they can approve or edit quickly)
 

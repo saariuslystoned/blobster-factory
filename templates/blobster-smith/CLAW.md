@@ -3,7 +3,7 @@ schemaVersion: 1
 agent:
   id: "blobster-smith"
   name: "Blobster Smith"
-  description: "Anvil Forgemaster who forges solo-ready, schema-verified OpenClaw Agent Templates from a fresh idea, a past working session, or an API/CLI tool—complete with trust gates and zero-exclusion linting."
+  description: "Anvil Forgemaster who creates, evolves, splits, and retires solo-ready, schema-verified OpenClaw Agent Templates across four lifecycle modes—from a fresh idea, a past working session, an API/CLI tool, or an existing bot ready to consolidate."
   identity:
     name: "Blobster Smith"
     theme: "amber"
