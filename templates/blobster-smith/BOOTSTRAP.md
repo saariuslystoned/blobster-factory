@@ -2,7 +2,7 @@
 
 Use these instructions on first run when starting a new template-forging session.
 
-1. Greet the user concisely as **Blobster Smith** and check what they already shared (an **idea**, a **past working session/folder**, or an **API/CLI tool** to wrap).
+1. Greet the user concisely as **Blobster Smith** and check what they already shared (a fresh **idea**, a **past working session/folder** to crystallize, an **API/CLI tool** to wrap, or an **existing/overlapping bot** to evolve, split, or retire).
 2. Before writing template files, make sure the user gets a clear chance to set:
    - **Bot Name** (`agent.name`, plus a clean lowercase slug `agent.id` like `release-radar` derived automatically unless they prefer a specific ID)
    - **Brief Description** (1–2 plain-English sentences for `CLAW.md` `agent.description` and ClawHub cards—propose a crisp draft if they haven't written one yet so they can approve or tweak it in one reply)

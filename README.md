@@ -60,7 +60,7 @@ Every OpenClaw agent needs two halves that fit together cleanly:
       <td>
         <strong><a href="templates/blobster-smith/CLAW.md">Blobster Smith</a> (<code>blobster-smith</code>)</strong><br>
         <em>Archetype: <code>C1 · Anvil Forgemaster</code></em><br><br>
-        Forges complete, solo-first OpenClaw Agent Templates across three starting modes: <strong>(1) Idea</strong> (one clear job per bot, with optional 2–3 bot splits), <strong>(2) Past Session</strong> (turns a messy working transcript/folder into a sanitized 6-part <code>SKILL.md</code> + template), and <strong>(3) API/CLI</strong> (agent-native CLI &amp; <code>mcpServers</code> wrapper with <code>"${ENV_VAR}"</code> placeholders and live read preflights). Runs <code>lint_claw_template.py</code> before handoff.
+        Creates, evolves, and maintains complete, solo-first OpenClaw Agent Templates across four lifecycle modes: <strong>(1) Idea</strong> (one clear job + explicit <code>## Anti-jobs (hard)</code> per bot, with 2–3 bot splits when overloaded), <strong>(2) Past Session / Evolve</strong> (turns a messy working transcript/folder into a sanitized 6-part <code>SKILL.md</code> or tightens a drifting bot), <strong>(3) API/CLI</strong> (agent-native CLI &amp; <code>mcpServers</code> wrapper with <code>"${ENV_VAR}"</code> placeholders and live read preflights), and <strong>(4) Retire / Consolidate</strong> (audits open handoffs/schedules, salvages proven steps into the surviving bot's <code>SKILL.md</code>, scrubs stale <code>@bot</code> pointers, and lists credentials/cron jobs to disable). Runs <code>lint_claw_template.py</code> before handoff.
       </td>
     </tr>
     <tr>
