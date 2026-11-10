@@ -1,6 +1,6 @@
 ---
 name: forge-template
-description: Create, evolve, split, or retire solo-ready OpenClaw Agent Templates (package.json, CLAW.md, profiles/openclaw.yml, workspace/, and skills) across 4 lifecycle modes: from an idea, a past session, an API/CLI tool, or an overlapping bot to consolidate.
+description: "Create, evolve, split, or retire solo-ready OpenClaw Agent Templates (package.json, CLAW.md, profiles/openclaw.yml, workspace/, and skills) across 4 lifecycle modes: from an idea, a past session, an API/CLI tool, or an overlapping bot to consolidate."
 ---
 
 # Forge Template (`forge-template`)
