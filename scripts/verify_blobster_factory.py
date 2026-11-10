@@ -277,7 +277,19 @@ def verify_compiler_and_linter_invariants() -> list[str]:
         claw_p = c_bool / "CLAW.md"
         claw_orig = claw_p.read_text(encoding="utf-8")
         claw_p.write_text(
-            claw_orig.replace("schemaVersion: 1", "schemaVersion: true\npackages: false", 1),
+            claw_orig.replace("schemaVersion: 1", "schemaVersion: true", 1).replace(
+                'packages:\n'
+                '  - kind: "skill"\n'
+                '    source: "clawhub"\n'
+                '    ref: "@saariuslystoned/forge-template"\n'
+                '    version: "0.1.0"\n'
+                '  - kind: "skill"\n'
+                '    source: "clawhub"\n'
+                '    ref: "@saariuslystoned/blobster-factory"\n'
+                '    version: "0.1.0"',
+                "packages: false",
+                1,
+            ),
             encoding="utf-8",
         )
         codes_bool = {d["code"] for d in lint_template_dir(c_bool, openclaw_mode="skip")["diagnostics"]}
@@ -310,12 +322,13 @@ def verify_compiler_and_linter_invariants() -> list[str]:
 
         # 3. CLAW.md body + workspace.files targeting SOUL.md conflict
         c_soul = fresh_copy("soul-files-conflict")
-        soul_claw = claw_orig.replace('    SOUL.md:\n      source: "workspace/SOUL.md"\n', "", 1).replace(
+        (c_soul / "workspace" / "SOUL.md").write_text("# Soul\n", encoding="utf-8")
+        soul_claw = claw_orig.replace(
             "  files:\n",
             '  files:\n    - source: "workspace/SOUL.md"\n      path: "SOUL.md"\n',
             1,
         )
-        (c_soul / "CLAW.md").write_text(soul_claw + "\nExtra SOUL markdown body.\n", encoding="utf-8")
+        (c_soul / "CLAW.md").write_text(soul_claw, encoding="utf-8")
         codes_soul = {d["code"] for d in lint_template_dir(c_soul, openclaw_mode="skip")["diagnostics"]}
         if "template_body_soul_conflict" not in codes_soul:
             errors.append(f"Linter failed to catch CLAW.md body + workspace.files SOUL.md conflict: {codes_soul}")

@@ -136,16 +136,16 @@ blobster-factory/
 ├── skills/
 │   └── blobster-factory/SKILL.md     # Repository-local workshop skill (requires full blobster-factory clone)
 └── templates/
-    ├── blobster-smith/               # C1 · Anvil Forgemaster (15-file standalone OpenClaw Agent Template)
+    ├── blobster-smith/               # C1 · Anvil Forgemaster (19-file standalone OpenClaw Agent Template)
     │   ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } }
-    │   ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/lint_claw_template.py)
+    │   ├── CLAW.md                   # schemaVersion: 1 manifest + SOUL.md body + packages skills
     │   ├── profiles/openclaw.yml     # Bounded coding tool allowlist + fs.workspaceOnly + non-main sandbox
-    │   └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
-    └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (15-file standalone OpenClaw Agent Template)
+    │   └── workspace/                # AGENTS.md, IDENTITY.md, TOOLS.md, avatars/, defaults/, scripts/, skills/
+    └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (16-file standalone OpenClaw Agent Template)
         ├── package.json
-        ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/compile_blobster_pack.py)
+        ├── CLAW.md                   # schemaVersion: 1 manifest + SOUL.md body + packages skills
         ├── profiles/openclaw.yml
-        └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
+        └── workspace/                # AGENTS.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
 ```
 
 ---
