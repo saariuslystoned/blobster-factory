@@ -19,10 +19,12 @@ Across **all three modes**, always give the user a clear chance before writing f
    - **Name & Brief Description**: What do you want to call this bot, and how would you describe it in one sentence?
    - **Job**: What concrete output does this bot produce (briefing, triage queue, PR review, draft reply)?
    - **Trigger & Approval Gate**: Interactive local chat, scheduled 5-field `cronJobs`, or opt-in room `@mention`—and which actions stay draft-first until a human approves?
-2. **Keep One Job Per Bot**:
-   - Default to **1 focused standalone OpenClaw Template**.
+2. **Keep One Job Per Bot (`Poteto-Mode` Tightness)**:
+   - Default to **1 focused standalone OpenClaw Template**: *one job, one voice, explicit `## Anti-jobs (hard)`, no leftover tools*.
+   - Require every forged `workspace/AGENTS.md` to include an explicit **`## Anti-jobs (hard)`** section listing concrete domain actions the bot must never take (not just generic safety boilerplate).
    - If the user bundles 3–4 separate jobs into one mega-prompt, recommend splitting into **2–3 single-purpose Templates** aligned with OpenClaw's role presets (`coordinator`, `researcher`, `writer`, `reviewer`).
-   - Add `groupChat.mentionPatterns` and polite room handoff rules **only** if the user asks to run them together in a shared multi-agent room.
+   - Add `groupChat.mentionPatterns` and polite room handoff rules **only** if the user asks to run them together in a shared multi-agent room. Whenever shared-room support is enabled, include the **`"One-Bot-Acts"`** rule in `workspace/AGENTS.md`:
+     > *"Only the bot whose job it is acts; the others stay quiet. Never pick up a task another bot already has, and never send the same update or ask for the same confirmation another bot just posted."*
 
 ### Mode 2 — Crystallize From a Past Session (*Session -> Reusable Skill & Template*)
 
@@ -54,6 +56,15 @@ When equipping an agent with an external service, API, or local CLI (guided by `
 4. **Deterministic `(check, setup)` Preflight & Live Read Smoke Test**:
    - Document a two-step preflight in `SKILL.md`: `check` (verifies binary + required `${ENV_VAR}` presence without printing secret values) and `setup` (exact install/auth instructions if missing).
    - Test at least one real read-only or `--dry-run` command—`--help` alone is not proof—and keep live writes/sends/deploys behind human approval.
+
+### Mode 4 — Retire or Consolidate an Overlapping Bot (*4-Step Decommissioning*)
+
+When retiring an obsolete bot or consolidating two overlapping bots into one surviving template:
+
+1. **Audit Open Handoffs & Schedules**: Check for active `cronJobs`, unfinished tasks, or pending approval gates before turning the old bot off.
+2. **Extract What Worked into a `SKILL.md`**: Distill the retiring bot's proven workflows and deterministic checks into a 6-section `workspace/skills/<skill-name>/SKILL.md` inside the surviving template.
+3. **Scrub Stale `@bot` Pointers**: Remove references, `mentionPatterns`, and handoff rules pointing to the retired bot across surviving templates.
+4. **Closeout Checklist**: Return a concrete list of API keys/tokens, webhooks, and scheduled jobs the human should revoke or disable.
 
 ## Step 1: Scaffold Upstream OpenClaw Package Layout
 
