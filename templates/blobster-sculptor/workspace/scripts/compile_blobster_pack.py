@@ -100,6 +100,7 @@ TRANSFORM_CALL_RE = re.compile(r"(translate|scale|rotate)\(([^)]*)\)")
 PATH_TOKEN_RE = re.compile(r"[MmZzLlHhVvCcSsQqTtAa]|[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?")
 OPENCLAW_AVATAR_MAX_BYTES = 2 * 1024 * 1024
 OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES = 1024 * 1024
+CLAWHUB_ICON_MAX_BYTES = 512 * 1024
 BASE_TEMPLATE_SHAPE_COUNT = 10  # 2 antennae + 2 claws + 1 body + 1 highlight + 4 eye circles
 MAX_CUSTOM_SVG_SHAPES = 24
 
@@ -1406,7 +1407,38 @@ def validate_compiled_blobster_svg(svg_text: str) -> dict[str, int]:
     }
 
 
-def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, Any]:
+def compile_clawhub_icon_png(svg_text: str, icon_out_path: Path, size: int = 256) -> dict[str, Any]:
+    """Deterministically rasterize a validated Blobster SVG to a 256x256 ClawHub catalog PNG (<= 512 KiB)."""
+    _require_pillow()
+    validate_compiled_blobster_svg(svg_text)
+    icon_rgba = rasterize_blobster_svg(svg_text, out_size=size, supersample=4)
+    metrics = analyze_frame_qa(icon_rgba)
+    if metrics["opaquePixels"] <= 0:
+        raise ValueError("ClawHub icon.png rendered with zero visible foreground pixels")
+    if metrics["borderClipPixels"] > 0:
+        raise ValueError(f"ClawHub icon.png clips {metrics['borderClipPixels']} pixel(s) on outer frame boundary")
+    icon_out_path.parent.mkdir(parents=True, exist_ok=True)
+    icon_rgba.save(icon_out_path, format="PNG", optimize=True)
+    icon_bytes = icon_out_path.stat().st_size
+    if icon_bytes > CLAWHUB_ICON_MAX_BYTES:
+        raise ValueError(
+            f"ClawHub icon.png ({icon_bytes}B) exceeds {CLAWHUB_ICON_MAX_BYTES}B (512 KiB) catalog limit"
+        )
+    return {
+        "ok": True,
+        "icon": str(icon_out_path),
+        "bytes": icon_bytes,
+        "width": size,
+        "height": size,
+    }
+
+
+def analyze_pack_qa(
+    avatars_dir: Path,
+    max_spill_pct: float = 1.5,
+    *,
+    allow_svg_only: bool = False,
+) -> dict[str, Any]:
     """Run deterministic QA checks on an OpenClaw Blobster avatars/ directory."""
     _require_pillow()
     errors: list[str] = []
@@ -1415,6 +1447,17 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
     hero_path = avatars_dir / "hero-512.png"
     cutout_path = avatars_dir / "cutout-256.png"
     sprite_path = avatars_dir / "sprite-2x2.png"
+    has_any_tier1_extra = any(
+        p.is_file()
+        for p in (
+            hero_path,
+            cutout_path,
+            sprite_path,
+            avatars_dir / "blobster-idle.gif",
+            avatars_dir / "blobster-wave.gif",
+        )
+    )
+    svg_only_mode = bool(allow_svg_only and not has_any_tier1_extra)
 
     agent_id = _infer_pack_id(avatars_dir)
     agent_name = agent_id
@@ -1486,7 +1529,8 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
 
     hero_bytes = 0
     if not hero_path.is_file():
-        errors.append("Missing hero-512.png")
+        if not svg_only_mode:
+            errors.append("Missing hero-512.png")
     else:
         hero_bytes = hero_path.stat().st_size
         if hero_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
@@ -1500,7 +1544,8 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
 
     cutout_bytes = 0
     if not cutout_path.is_file():
-        errors.append("Missing cutout-256.png")
+        if not svg_only_mode:
+            errors.append("Missing cutout-256.png")
     else:
         cutout_bytes = cutout_path.stat().st_size
         if cutout_bytes > OPENCLAW_TEMPLATE_MANAGED_FILE_MAX_BYTES:
@@ -1540,32 +1585,33 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
             errors.append(f"Invalid sprite-2x2.png: {exc}")
 
     gif_bytes: dict[str, int] = {}
-    animation_source = "missing"
-    try:
-        idle_b, idle_frames, wave_b, wave_frames, animation_source = _resolve_pack_gif_streams(avatars_dir)
-        if animation_source == "missing" or idle_b is None or wave_b is None:
-            errors.append("Missing animation frames (provide sprite-2x2.png or blobster-idle.gif + blobster-wave.gif)")
-        else:
-            for gname, gbytes, gframes in (
-                ("blobster-idle.gif", idle_b, idle_frames),
-                ("blobster-wave.gif", wave_b, wave_frames),
-            ):
-                sz = len(gbytes)
-                gif_bytes[gname] = sz
-                if sz > OPENCLAW_AVATAR_MAX_BYTES:
-                    errors.append(f"{gname} ({sz}B) exceeds 2 MiB")
-                if len(gframes) < 2:
-                    errors.append(f"{gname} must contain >= 2 animation frames")
-                for f_idx, fr in enumerate(gframes):
-                    fm = analyze_frame_qa(fr)
-                    frame_metrics[f"{gname}#f{f_idx}"] = fm
-                    if fm["opaquePixels"] <= 0:
-                        errors.append(f"{gname}#f{f_idx} has zero visible foreground pixels")
-                    max_border_clip = max(max_border_clip, fm["borderClipPixels"])
-                    max_spill = max(max_spill, fm["magentaSpillPct"])
-                    max_edge_spill = max(max_edge_spill, fm["edgeMagentaSpillPct"])
-    except Exception as exc:
-        errors.append(f"Animation QA failed: {exc}")
+    animation_source = "svg_only" if svg_only_mode else "missing"
+    if not svg_only_mode:
+        try:
+            idle_b, idle_frames, wave_b, wave_frames, animation_source = _resolve_pack_gif_streams(avatars_dir)
+            if animation_source == "missing" or idle_b is None or wave_b is None:
+                errors.append("Missing animation frames (provide sprite-2x2.png or blobster-idle.gif + blobster-wave.gif)")
+            else:
+                for gname, gbytes, gframes in (
+                    ("blobster-idle.gif", idle_b, idle_frames),
+                    ("blobster-wave.gif", wave_b, wave_frames),
+                ):
+                    sz = len(gbytes)
+                    gif_bytes[gname] = sz
+                    if sz > OPENCLAW_AVATAR_MAX_BYTES:
+                        errors.append(f"{gname} ({sz}B) exceeds 2 MiB")
+                    if len(gframes) < 2:
+                        errors.append(f"{gname} must contain >= 2 animation frames")
+                    for f_idx, fr in enumerate(gframes):
+                        fm = analyze_frame_qa(fr)
+                        frame_metrics[f"{gname}#f{f_idx}"] = fm
+                        if fm["opaquePixels"] <= 0:
+                            errors.append(f"{gname}#f{f_idx} has zero visible foreground pixels")
+                        max_border_clip = max(max_border_clip, fm["borderClipPixels"])
+                        max_spill = max(max_spill, fm["magentaSpillPct"])
+                        max_edge_spill = max(max_edge_spill, fm["edgeMagentaSpillPct"])
+        except Exception as exc:
+            errors.append(f"Animation QA failed: {exc}")
 
     if max_border_clip > 0:
         errors.append(f"Detected {max_border_clip} border-clipped foreground pixels on outer 1px frame boundary")
@@ -1576,6 +1622,7 @@ def analyze_pack_qa(avatars_dir: Path, max_spill_pct: float = 1.5) -> dict[str, 
         "ok": len(errors) == 0,
         "id": agent_id,
         "name": agent_name,
+        "packMode": "svg_only" if svg_only_mode else "tier1",
         "avatarsDir": str(avatars_dir.resolve()),
         "animationSource": animation_source,
         "maxMagentaSpillPct": round(max_spill, 3),
@@ -1630,10 +1677,16 @@ def render_qa_contact_sheet(avatars_dir: Path, out_path: Path, qa_report: dict[s
     svg_24 = rasterize_blobster_svg(svg_text, out_size=24, supersample=8)
     svg_24_loupe = svg_24.resize((96, 96), Image.Resampling.NEAREST)
 
-    cutout_256 = Image.open(avatars_dir / "cutout-256.png").convert("RGBA")
+    cutout_path = avatars_dir / "cutout-256.png"
+    hero_path = avatars_dir / "hero-512.png"
+    cutout_256 = Image.open(cutout_path).convert("RGBA") if cutout_path.is_file() else svg_256
     cutout_64 = cutout_256.resize((64, 64), Image.Resampling.LANCZOS)
     cutout_24 = cutout_256.resize((24, 24), Image.Resampling.LANCZOS)
-    hero_88 = Image.open(avatars_dir / "hero-512.png").convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
+    hero_88 = (
+        Image.open(hero_path).convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
+        if hero_path.is_file()
+        else svg_256.resize((88, 88), Image.Resampling.LANCZOS)
+    )
     _, idle_frames, _, wave_frames, _ = _resolve_pack_gif_streams(avatars_dir)
     if not idle_frames:
         idle_frames = [cutout_256]
@@ -1807,6 +1860,7 @@ def compile_tier1_pack(
     qa_out_path: Path | None = None,
     max_spill_pct: float = 1.5,
     omit_gifs: bool = False,
+    icon_out_path: Path | None = None,
 ) -> dict[str, Any]:
     design = json.loads(design_json_path.read_text(encoding="utf-8"))
     svg_text = render_blobster_svg(design)
@@ -1814,6 +1868,11 @@ def compile_tier1_pack(
     output_dir.mkdir(parents=True, exist_ok=True)
     svg_path = output_dir / "blobster.svg"
     svg_path.write_text(svg_text, encoding="utf-8")
+    icon_meta = (
+        compile_clawhub_icon_png(svg_text, icon_out_path)
+        if icon_out_path is not None
+        else None
+    )
 
     hero_img = Image.open(hero_source_path).convert("RGBA")
     hw, hh = hero_img.size
@@ -1880,6 +1939,8 @@ def compile_tier1_pack(
         "name": design["name"],
         "svg": str(svg_path),
         "svgBytes": svg_path.stat().st_size,
+        "icon": icon_meta["icon"] if icon_meta else None,
+        "iconBytes": icon_meta["bytes"] if icon_meta else 0,
         "hero512": str(hero_512_path),
         "hero512Bytes": hero_512_path.stat().st_size,
         "sprite2x2": str(sprite_2x2_path),
@@ -1907,12 +1968,28 @@ def main(argv: list[str] | None = None) -> int:
     p_svg = sub.add_parser("svg", help="Compile & validate an OpenClaw Blobster SVG from design JSON")
     p_svg.add_argument("--design", required=True, type=Path, help="Path to blobster-design.json")
     p_svg.add_argument("--out", required=True, type=Path, help="Output SVG path")
+    p_svg.add_argument(
+        "--icon-out",
+        type=Path,
+        default=None,
+        help="Optional 256x256 ClawHub catalog icon.png path (e.g. assets/icon.png, <= 512 KiB).",
+    )
+
+    p_icon = sub.add_parser("icon", help="Rasterize a validated Blobster SVG to a 256x256 ClawHub catalog icon.png")
+    p_icon.add_argument("--svg", required=True, type=Path, help="Path to validated blobster.svg")
+    p_icon.add_argument("--out", required=True, type=Path, help="Output PNG path (e.g. assets/icon.png)")
 
     p_tier1 = sub.add_parser("tier1", help="Compile full Tier 1 Fast Pack (SVG + 512 PNG + sprite-2x2.png + GIFs + QA)")
     p_tier1.add_argument("--design", required=True, type=Path, help="Path to blobster-design.json")
     p_tier1.add_argument("--hero", required=True, type=Path, help="Path to 1:1 3D hero source image")
     p_tier1.add_argument("--sheet", required=True, type=Path, help="Path to 2x2 #FF00FF chroma-key sheet")
     p_tier1.add_argument("--out-dir", required=True, type=Path, help="Output avatars/ directory")
+    p_tier1.add_argument(
+        "--icon-out",
+        type=Path,
+        default=None,
+        help="Optional 256x256 ClawHub catalog icon.png path (e.g. templates/<id>/assets/icon.png).",
+    )
     p_tier1.add_argument("--gif-size", type=int, default=256, help="Square GIF pixel dimension (default: 256)")
     p_tier1.add_argument(
         "--omit-gifs",
@@ -1966,12 +2043,23 @@ def main(argv: list[str] | None = None) -> int:
         default=1.5,
         help="Max allowed #FF00FF magenta fringe spill percentage per frame (default: 1.5).",
     )
+    p_qa.add_argument(
+        "--allow-svg-only",
+        action="store_true",
+        help="Allow starter packs containing only blobster.svg (+ optional blobster-design.json) without optional 3D/GIF extras.",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "svg":
         if not args.design.is_file():
             print(f"error: design JSON not found: {args.design}", file=sys.stderr)
             return 2
+        if args.icon_out is not None:
+            try:
+                _require_pillow()
+            except RuntimeError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 2
         try:
             design = json.loads(args.design.read_text(encoding="utf-8"))
             svg_text = render_blobster_svg(design)
@@ -1981,12 +2069,21 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(svg_text, encoding="utf-8")
+        icon_res = None
+        if args.icon_out is not None:
+            try:
+                icon_res = compile_clawhub_icon_png(svg_text, args.icon_out)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
         print(
             json.dumps(
                 {
                     "ok": True,
                     "svg": str(args.out),
                     "bytes": args.out.stat().st_size,
+                    "icon": icon_res["icon"] if icon_res else None,
+                    "iconBytes": icon_res["bytes"] if icon_res else 0,
                     "customSvgShapes": svg_meta["customSvgShapes"],
                     "totalSvgShapes": svg_meta["totalSvgShapes"],
                 },
@@ -1995,12 +2092,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if args.cmd in ("tier1", "gifs", "qa"):
+    if args.cmd in ("icon", "tier1", "gifs", "qa"):
         try:
             _require_pillow()
         except RuntimeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+
+    if args.cmd == "icon":
+        if not args.svg.is_file():
+            print(f"error: SVG file not found: {args.svg}", file=sys.stderr)
+            return 2
+        try:
+            svg_text = args.svg.read_text(encoding="utf-8")
+            icon_res = compile_clawhub_icon_png(svg_text, args.out)
+        except (ValueError, ET.ParseError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(icon_res, indent=2))
+        return 0
 
     if args.cmd == "tier1":
         for req_p, label in ((args.design, "design"), (args.hero, "hero"), (args.sheet, "sheet")):
@@ -2017,6 +2127,7 @@ def main(argv: list[str] | None = None) -> int:
                 qa_out_path=args.qa_out,
                 max_spill_pct=args.max_spill_pct,
                 omit_gifs=args.omit_gifs,
+                icon_out_path=args.icon_out,
             )
         except (ValueError, json.JSONDecodeError, ET.ParseError) as exc:
             print(f"error: {exc}", file=sys.stderr)
@@ -2072,10 +2183,15 @@ def main(argv: list[str] | None = None) -> int:
         if not args.avatars_dir.is_dir():
             print(f"error: avatars directory not found: {args.avatars_dir}", file=sys.stderr)
             return 2
+        base_qa = analyze_pack_qa(
+            args.avatars_dir,
+            max_spill_pct=args.max_spill_pct,
+            allow_svg_only=args.allow_svg_only,
+        )
         qa_res = (
-            render_qa_contact_sheet(args.avatars_dir, args.out, qa_report=analyze_pack_qa(args.avatars_dir, args.max_spill_pct))
+            render_qa_contact_sheet(args.avatars_dir, args.out, qa_report=base_qa)
             if args.out is not None
-            else analyze_pack_qa(args.avatars_dir, max_spill_pct=args.max_spill_pct)
+            else base_qa
         )
         print(json.dumps(qa_res, indent=2))
         if not qa_res["ok"]:

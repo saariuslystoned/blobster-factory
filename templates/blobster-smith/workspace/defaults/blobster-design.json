@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "starter-blobster",
+  "name": "Proto-Blob (Fresh Out of the Box)",
+  "description": "Default unpainted primer-grey rookie Blobster wearing its crooked cardboard shipping-box helmet with blue painter's tape, a slapped-on red-and-white HELLO name-tag sticker, a dangling factory barcode hang-tag, and a yellow rookie caution paddle—ready for Blobster Sculptor to paint.",
+  "palette": {
+    "shell": "#94a3b8",
+    "claw": "#64748b",
+    "glint": "#fef08a"
+  },
+  "layers": {
+    "back": "",
+    "left_prop": "<path d=\"M13 48 Q6 53 9 61\" stroke=\"#cbd5e1\" stroke-width=\"2.2\" fill=\"none\" stroke-linecap=\"round\"/><g transform=\"rotate(14 10 73)\"><rect x=\"1\" y=\"59\" width=\"18\" height=\"26\" rx=\"3\" fill=\"#f8fafc\" stroke=\"#1e293b\" stroke-width=\"2.2\"/><circle cx=\"10\" cy=\"64\" r=\"2.2\" fill=\"#ef4444\"/><path d=\"M5 71 H15 M5 75 H13 M5 79 H15\" stroke=\"#1e293b\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></g>",
+    "right_prop": "<line x1=\"105\" y1=\"60\" x2=\"113\" y2=\"26\" stroke=\"#78350f\" stroke-width=\"3.5\" stroke-linecap=\"round\"/><polygon points=\"113,4 126,17 113,30 100,17\" fill=\"#facc15\" stroke=\"#92400e\" stroke-width=\"2\" stroke-linejoin=\"round\"/><path d=\"M113 11 V19.5\" stroke=\"#0f172a\" stroke-width=\"3\" stroke-linecap=\"round\"/><circle cx=\"113\" cy=\"24\" r=\"1.8\" fill=\"#0f172a\"/>",
+    "shell_overlay": "<line x1=\"60\" y1=\"10\" x2=\"60\" y2=\"96\" stroke=\"#64748b\" stroke-width=\"1.6\" stroke-dasharray=\"3 3\"/><g transform=\"rotate(-6 60 66)\"><rect x=\"34\" y=\"50\" width=\"52\" height=\"31\" rx=\"4\" fill=\"#f8fafc\" stroke=\"#334155\" stroke-width=\"1.8\"/><path d=\"M34 54 Q34 50 38 50 H82 Q86 50 86 54 V60 H34 Z\" fill=\"#ef4444\"/><path d=\"M42 70 Q47 65 52 70 T62 70 T76 68\" fill=\"none\" stroke=\"#0f172a\" stroke-width=\"2.4\" stroke-linecap=\"round\"/></g>",
+    "accessory": "<g transform=\"rotate(-4 60 10)\"><polygon points=\"31,-2 13,-10 21,13 31,15\" fill=\"#d97706\" stroke=\"#78350f\" stroke-width=\"1.8\" stroke-linejoin=\"round\"/><polygon points=\"89,-2 107,-10 99,13 89,15\" fill=\"#d97706\" stroke=\"#78350f\" stroke-width=\"1.8\" stroke-linejoin=\"round\"/><rect x=\"31\" y=\"-3\" width=\"58\" height=\"25\" rx=\"2.5\" fill=\"#f59e0b\" stroke=\"#78350f\" stroke-width=\"2\"/><line x1=\"60\" y1=\"-3\" x2=\"60\" y2=\"22\" stroke=\"#92400e\" stroke-width=\"1.8\"/><rect x=\"47\" y=\"5\" width=\"26\" height=\"8\" rx=\"1.2\" transform=\"rotate(6 60 9)\" fill=\"#38bdf8\" stroke=\"#0284c7\" stroke-width=\"1.2\"/></g>"
+  }
+}

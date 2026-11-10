@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="-12 -18 144 144" role="img">
+<metadata>MIT License
+
+Copyright (c) 2026 OpenClaw Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</metadata>
+<title>Proto-Blob (Fresh Out of the Box)</title><desc>Default unpainted primer-grey rookie Blobster wearing its crooked cardboard shipping-box helmet with blue painter's tape, a slapped-on red-and-white HELLO name-tag sticker, a dangling factory barcode hang-tag, and a yellow rookie caution paddle—ready for Blobster Sculptor to paint.</desc>
+<defs><clipPath id="blobster-body-clip"><path d="M60 8 C32 8 16 32 16 52 C16 72 30 90 44 95 L44 104 L54 104 L54 96 C58 97.5 62 97.5 66 96 L66 104 L76 104 L76 95 C90 90 104 72 104 52 C104 32 88 8 60 8 Z"/></clipPath></defs>
+<g stroke="#94a3b8" stroke-width="4" stroke-linecap="round" fill="none"><path d="M46 14 Q38 4 31 7"/><path d="M74 14 Q82 4 89 7"/></g>
+<g><path d="M13 48 Q6 53 9 61" stroke="#cbd5e1" stroke-width="2.2" fill="none" stroke-linecap="round"></path><g transform="rotate(14 10 73)"><rect x="1" y="59" width="18" height="26" rx="3" fill="#f8fafc" stroke="#1e293b" stroke-width="2.2"></rect><circle cx="10" cy="64" r="2.2" fill="#ef4444"></circle><path d="M5 71 H15 M5 75 H13 M5 79 H15" stroke="#1e293b" stroke-width="1.8" stroke-linecap="round"></path></g><path d="M20 42 C5 37 0 47 5 57 C10 67 20 62 25 52 C28 45 25 42 20 42 Z" fill="#64748b"/></g>
+<g><line x1="105" y1="60" x2="113" y2="26" stroke="#78350f" stroke-width="3.5" stroke-linecap="round"></line><polygon points="113,4 126,17 113,30 100,17" fill="#facc15" stroke="#92400e" stroke-width="2" stroke-linejoin="round"></polygon><path d="M113 11 V19.5" stroke="#0f172a" stroke-width="3" stroke-linecap="round"></path><circle cx="113" cy="24" r="1.8" fill="#0f172a"></circle><path d="M100 42 C115 37 120 47 115 57 C110 67 100 62 95 52 C92 45 95 42 100 42 Z" fill="#64748b"/></g>
+<path d="M60 8 C32 8 16 32 16 52 C16 72 30 90 44 95 L44 104 L54 104 L54 96 C58 97.5 62 97.5 66 96 L66 104 L76 104 L76 95 C90 90 104 72 104 52 C104 32 88 8 60 8 Z" fill="#94a3b8"/>
+<g clip-path="url(#blobster-body-clip)"><line x1="60" y1="10" x2="60" y2="96" stroke="#64748b" stroke-width="1.6" stroke-dasharray="3 3"></line><g transform="rotate(-6 60 66)"><rect x="34" y="50" width="52" height="31" rx="4" fill="#f8fafc" stroke="#334155" stroke-width="1.8"></rect><path d="M34 54 Q34 50 38 50 H82 Q86 50 86 54 V60 H34 Z" fill="#ef4444"></path><path d="M42 70 Q47 65 52 70 T62 70 T76 68" fill="none" stroke="#0f172a" stroke-width="2.4" stroke-linecap="round"></path></g></g>
+<ellipse cx="48" cy="28" rx="20" ry="11" fill="#ffffff" opacity="0.1"/>
+<g><g transform="rotate(-4 60 10)"><polygon points="31,-2 13,-10 21,13 31,15" fill="#d97706" stroke="#78350f" stroke-width="1.8" stroke-linejoin="round"></polygon><polygon points="89,-2 107,-10 99,13 89,15" fill="#d97706" stroke="#78350f" stroke-width="1.8" stroke-linejoin="round"></polygon><rect x="31" y="-3" width="58" height="25" rx="2.5" fill="#f59e0b" stroke="#78350f" stroke-width="2"></rect><line x1="60" y1="-3" x2="60" y2="22" stroke="#92400e" stroke-width="1.8"></line><rect x="47" y="5" width="26" height="8" rx="1.2" transform="rotate(6 60 9)" fill="#38bdf8" stroke="#0284c7" stroke-width="1.2"></rect></g></g>
+<g><circle cx="45" cy="32" r="5.5" fill="#0a1014"/><circle cx="75" cy="32" r="5.5" fill="#0a1014"/><circle cx="46.5" cy="30.5" r="2.2" fill="#fef08a"/><circle cx="76.5" cy="30.5" r="2.2" fill="#fef08a"/></g>
+</svg>
