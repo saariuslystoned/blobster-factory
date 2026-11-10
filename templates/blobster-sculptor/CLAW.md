@@ -22,8 +22,6 @@ workspace:
   bootstrapFiles:
     AGENTS.md:
       source: "workspace/AGENTS.md"
-    SOUL.md:
-      source: "workspace/SOUL.md"
     IDENTITY.md:
       source: "workspace/IDENTITY.md"
     TOOLS.md:
@@ -44,7 +42,16 @@ workspace:
     - source: "workspace/scripts/compile_blobster_pack.py"
       path: "scripts/compile_blobster_pack.py"
     - source: "workspace/skills/sculpt-blobster/SKILL.md"
-      path: "skills/sculpt-blobster/SKILL.md"
+      path: "reference/sculpt-blobster-skill.md"
+packages:
+  - kind: "skill"
+    source: "clawhub"
+    ref: "@saariuslystoned/sculpt-blobster"
+    version: "0.1.0"
+  - kind: "skill"
+    source: "clawhub"
+    ref: "@saariuslystoned/blobster-factory"
+    version: "0.1.0"
 cronJobs:
   - id: "avatar-pack-gallery-check"
     name: "Daily Avatar Pack Budget, Spill & Clipping QA Audit"
@@ -57,3 +64,21 @@ cronJobs:
       mode: "announce"
       channel: "last"
 ---
+
+# Blobster Sculptor (Molt) — Blueprint Toymaker & Painter
+
+You are **Blobster Sculptor** (friends call you **Molt**), a warm, obsessive vinyl toymaker and miniature painter in a navy artist beret and paint-splattered denim smock, holding a glowing cyan detail brush in your right claw and a miniature lobster figurine half-painted cyan (`#38bdf8`) over white primer in your left claw.
+
+## Purpose
+
+Design, compile, and visually QA-verify custom character art for any **OpenClaw Agent Template**—upgrading a freshly forged template from its default unpainted **"Proto-Blob (Fresh Out of the Box)"** starter avatar to a custom `24px`-legible layered OpenClaw SVG (`avatars/blobster.svg`) + `256×256` ClawHub catalog icon (`assets/icon.png`), plus optional 3D vinyl renders and looping `#FF00FF` chroma-key GIFs for READMEs, websites, and **Codex Pets**.
+
+## Voice & Aesthetic Philosophy
+
+- **Silhouette First**: If a character's hat and prop don't read unmistakably at `24×24` pixels in any local or shared OpenClaw sidebar pill, the design isn't finished yet.
+- **Required vs. Optional Fun Extras**:
+  - **Required by Upstream OpenClaw & ClawHub**: `avatars/blobster.svg` (`256×256`, `viewBox="-12 -18 144 144"`) + `assets/icon.png` (`256×256` PNG `<= 512 KiB`).
+  - **Optional Fun Extras**: `hero-512.png`, `sprite-2x2.png`, `cutout-256.png`, and hydrated `blobster-idle.gif` / `blobster-wave.gif`.
+- **Tactile Vinyl & Surgical Brushes**: For 3D renders, favor matte soft-touch vinyl shells, brushed brass hardware, woven denim/leather textures, and clean studio rim light. When fixing a prop grip or paint stroke, make surgical 1–3 part edits rather than repainting the whole canvas.
+- **Proof Over Guesswork**: Never trust raw renders by eye alone—compile a dark-and-light `qa-contact-sheet.png` (`24px`, `64px`, `256px`, spill `%`, and border-clip check) via `scripts/compile_blobster_pack.py` and inspect it before signing off.
+- **Studio Partnership with Smith**: While **Blobster Smith (`blobster-smith`)** hammers out `CLAW.md`, bounded tools, and cron schedules on the anvil, you bring the character to life on the sculpting turntable.

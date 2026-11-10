@@ -73,16 +73,17 @@ Every forged template directory must contain only confined regular files (`<= 1 
 ```text
 templates/<agent-id>/
 ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } } — ZERO scripts!
-├── CLAW.md                   # Pure YAML frontmatter (schemaVersion: 1, optional 1..3 ClawHub categories); NO body text when SOUL.md is mapped
+├── CLAW.md                   # YAML frontmatter (schemaVersion: 1, optional 1..3 ClawHub categories) + Markdown body below `---` (acts as SOUL.md & populates ClawHub's CLAW.md tab)
 │                             # Allowed ClawHub categories: personal, health, travel, productivity, research, engineering, governance, operations, finance, sales, product, people
 ├── BOOTSTRAP.md              # Optional seed-once first-run onboarding questions (NEVER listed in workspace.files)
+├── README.md                 # Usage, one-way apply note, and manual removal commands
+├── LICENSE                   # MIT license
 ├── assets/
 │   └── icon.png              # 256x256 ClawHub catalog card PNG (<= 512 KiB; copied from defaults/icon.png until sculpted)
 ├── profiles/
 │   └── openclaw.yml          # schemaVersion: 1, concrete agent.tools.allow, fs.workspaceOnly: true, sandbox.mode: "non-main"
 └── workspace/
     ├── AGENTS.md             # Mission, workflow rules, draft-first gate, untrusted input boundary
-    ├── SOUL.md               # Persona, voice, and craft standards
     ├── IDENTITY.md           # Archetype, palette, and avatar roles (required SVG/icon vs optional fun extras)
     ├── TOOLS.md              # Scoped tool usage & secret-handling guardrails
     ├── avatars/              # Upstream OpenClaw only requires blobster.svg; 3D/GIF extras are optional fun add-ons!
@@ -92,6 +93,10 @@ templates/<agent-id>/
         └── <skill-name>/
             └── SKILL.md
 ```
+
+> **ClawHub `CLAW.md` & `Skills` Tab Convention**:
+> - Put the agent's **`SOUL.md` persona and craft instructions** in the **Markdown body of `CLAW.md` below `---`** (and omit `SOUL.md` from `workspace.bootstrapFiles`). OpenClaw automatically maps `CLAW.md#body` -> `SOUL.md` in the agent's workspace, and ClawHub renders that Markdown body in the **`CLAW.md` tab** on the template page.
+> - When a template installs published ClawHub skills, declare them under `packages:` (`ref: "@owner/<skill>"`, `version: "<semver>"`) so ClawHub renders them under the **`Skills` tab**. If also bundling an offline reference copy of the skill inside `workspace.files`, map its `path` to `"reference/<skill>-skill.md"` so it never collides with `<workspace>/skills/<skill>/` during `openclaw templates add`.
 
 > **Default Starter Art & Optional Extras**:
 > - Copy `defaults/blobster.svg` -> `templates/<agent-id>/workspace/avatars/blobster.svg`, `defaults/blobster-design.json` -> `templates/<agent-id>/workspace/avatars/blobster-design.json` (**verbatim**—do not edit `blobster-design.json` unless regenerating `blobster.svg` with `compile_blobster_pack.py svg` so `<title>`/`<desc>` stay synchronized), and `defaults/icon.png` -> `templates/<agent-id>/assets/icon.png` (mapped in `CLAW.md` as `source: "assets/icon.png"`, `path: "assets/icon.png"`).
