@@ -2,7 +2,7 @@
   "version": 1,
   "id": "blobster-sculptor",
   "name": "Blobster Sculptor",
-  "description": "Blueprint Toymaker and Painter in a navy artist beret and denim smock, holding a glowing cyan detail brush and a miniature lobster figurine half-painted cyan over white primer.",
+  "description": "Blueprint Toymaker and Painter in a navy artist beret and denim smock, holding a cyan-tipped detail brush and a miniature lobster figurine half-painted the same cyan over white primer.",
   "palette": {
     "shell": "#d94638",
     "claw": "#b53326",
@@ -10,9 +10,9 @@
   },
   "layers": {
     "back": "",
-    "left_prop": "<ellipse cx=\"10\" cy=\"30\" rx=\"8\" ry=\"10\" fill=\"#f1f5f9\" stroke=\"#94a3b8\" stroke-width=\"1.5\"/><path d=\"M10 20 A8 10 0 0 1 18 30 L10 30 Z\" fill=\"#38bdf8\"/><circle cx=\"7\" cy=\"27\" r=\"1.5\" fill=\"#334155\"/><circle cx=\"13\" cy=\"27\" r=\"1.5\" fill=\"#334155\"/><path d=\"M7 20 Q5 15 3 17 M13 20 Q15 15 17 17\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"1.5\" stroke-linecap=\"round\"/>",
-    "right_prop": "<path d=\"M104 54 L114 22\" fill=\"none\" stroke=\"#cbd5e1\" stroke-width=\"3.5\" stroke-linecap=\"round\"/><path d=\"M114 22 C110 15 115 8 119 6 C122 12 121 19 114 22 Z\" fill=\"#38bdf8\" stroke=\"#bae6fd\" stroke-width=\"1.5\"/>",
-    "shell_overlay": "<path d=\"M30 44 Q60 52 90 44 C88 68 78 88 60 94 C42 88 32 68 30 44 Z\" fill=\"#f5e6d3\"/><path d=\"M33 50 L44 50 L45 60 L75 60 L76 50 L87 50 L92 92 Q60 104 28 92 Z\" fill=\"#1e3a5f\"/><path d=\"M46 68 H74 V85 Q60 90 46 85 Z\" fill=\"#172554\" stroke=\"#38bdf8\" stroke-width=\"1.5\"/><circle cx=\"53\" cy=\"75\" r=\"2.5\" fill=\"#38bdf8\"/><circle cx=\"66\" cy=\"78\" r=\"2\" fill=\"#f472b6\"/>",
+    "left_prop": "<ellipse cx=\"10\" cy=\"29\" rx=\"10\" ry=\"12\" fill=\"#f8fafc\" stroke=\"#94a3b8\" stroke-width=\"1.5\"/><path d=\"M10 17 A10 12 0 0 1 10 41 Z\" fill=\"#38bdf8\"/><path d=\"M6 18 Q3 11 0 13 M14 18 Q17 11 20 13\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><circle cx=\"6\" cy=\"27\" r=\"1.8\" fill=\"#334155\"/><circle cx=\"14\" cy=\"27\" r=\"1.8\" fill=\"#334155\"/>",
+    "right_prop": "<path d=\"M104 54 L113 24\" fill=\"none\" stroke=\"#e2e8f0\" stroke-width=\"4.5\" stroke-linecap=\"round\"/><path d=\"M113 24 C108 16 113 7 119 4 C123 11 122 20 113 24 Z\" fill=\"#38bdf8\" stroke=\"#0369a1\" stroke-width=\"1.5\"/>",
+    "shell_overlay": "<path d=\"M30 44 Q60 52 90 44 C88 68 78 88 60 94 C42 88 32 68 30 44 Z\" fill=\"#f5e6d3\"/><path d=\"M33 50 L44 50 L45 60 L75 60 L76 50 L87 50 L92 92 Q60 104 28 92 Z\" fill=\"#1e3a5f\"/><path d=\"M46 68 H74 V85 Q60 90 46 85 Z\" fill=\"#172554\" stroke=\"#38bdf8\" stroke-width=\"1.5\"/><circle cx=\"54\" cy=\"76\" r=\"3.5\" fill=\"#38bdf8\"/>",
     "accessory": "<path d=\"M32 16 C30 4 58 -2 88 10 C94 13 92 20 82 20 Q56 15 32 16 Z\" fill=\"#1e293b\" stroke=\"#334155\" stroke-width=\"2\"/><path d=\"M62 4 L65 -1\" fill=\"none\" stroke=\"#1e293b\" stroke-width=\"3\" stroke-linecap=\"round\"/>"
   }
 }
