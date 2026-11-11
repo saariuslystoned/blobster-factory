@@ -282,7 +282,7 @@ def verify_compiler_and_linter_invariants() -> list[str]:
                 '  - kind: "skill"\n'
                 '    source: "clawhub"\n'
                 '    ref: "@saariuslystoned/forge-template"\n'
-                '    version: "0.1.0"',
+                '    version: "0.1.1"',
                 "packages: false",
                 1,
             ),

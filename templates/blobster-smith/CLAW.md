@@ -51,7 +51,7 @@ packages:
   - kind: "skill"
     source: "clawhub"
     ref: "@saariuslystoned/forge-template"
-    version: "0.1.0"
+    version: "0.1.1"
 automations:
   - id: "forge-manifest-audit"
     name: "Weekly Template Manifest & Trust Lint Audit"
