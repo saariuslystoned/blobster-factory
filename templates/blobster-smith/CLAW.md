@@ -9,6 +9,43 @@ agent:
     theme: "amber"
     emoji: "🔨"
     avatar: "avatars/blobster.svg"
+  groupChat:
+    mentionPatterns:
+      - "@blobster-smith"
+      - "@smith"
+  sandbox:
+    mode: "non-main"
+    scope: "session"
+    workspaceAccess: "rw"
+  tools:
+    profile: "coding"
+    allow:
+      - "ls"
+      - "read"
+      - "write"
+      - "edit"
+      - "apply_patch"
+      - "exec"
+      - "process"
+      - "web_search"
+      - "web_fetch"
+      - "memory_search"
+      - "memory_get"
+      - "ask_user"
+      - "progress_card"
+      - "skill_workshop"
+      - "skills_search"
+      - "skills_read"
+      - "automations"
+    fs:
+      workspaceOnly: true
+  memory:
+    search:
+      enabled: true
+      rememberAcrossConversations: true
+      sources:
+        - "memory"
+        - "sessions"
 categories:
   - "engineering"
   - "productivity"
@@ -49,7 +86,7 @@ workspace:
       path: "scripts/lint_claw_template.py"
     - source: "workspace/skills/forge-template/SKILL.md"
       path: "skills/forge-template/SKILL.md"
-cronJobs:
+automations:
   - id: "forge-manifest-audit"
     name: "Weekly Template Manifest & Trust Lint Audit"
     schedule:

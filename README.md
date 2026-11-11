@@ -25,10 +25,10 @@
 
 # Blobster Factory (`blobster-factory`)
 
-An open-source workshop, deterministic asset compiler, template linter, and starter template collection for **[OpenClaw](https://github.com/openclaw) Agent Templates** (`CLAW.md`, `package.json`, `profiles/openclaw.yml`, and `workspace/`).
+An open-source workshop, deterministic asset compiler, template linter, and starter template collection for **[OpenClaw](https://github.com/openclaw) Agent Templates** (a single `CLAW.md` manifest, `package.json`, and `workspace/`).
 
 Every OpenClaw agent needs two halves that fit together cleanly:
-1. **The Brain (`Blobster Smith`)** — Prompts you to **name your bot** and give a **brief description**, then forges a solo-install-ready, schema-validated `CLAW.md` manifest, `BOOTSTRAP.md` first-run setup, bounded `profiles/openclaw.yml` tool allowlists (`fs.workspaceOnly: true`, `sandbox.mode: "non-main"`), `AGENTS.md` / `SOUL.md` / `IDENTITY.md` / `TOOLS.md` bootstrap files, skills, and one quiet-on-clean 5-field cron routine (or on-demand default). Every newly forged template ships out-of-the-box with our funny unpainted rookie default avatar (**"Proto-Blob: Fresh Out of the Box"** — `avatars/blobster.svg` + `assets/icon.png`, the **only** art files upstream OpenClaw and ClawHub require!) and points you to **Blobster Sculptor** whenever you want custom art.
+1. **The Brain (`Blobster Smith`)** — Prompts you to **name your bot** and give a **brief description**, then forges a solo-install-ready, schema-validated `CLAW.md` manifest, `BOOTSTRAP.md` first-run setup, bounded `agent.tools.allow` lists in the `CLAW.md` frontmatter (`fs.workspaceOnly: true`, `sandbox.mode: "non-main"`), `AGENTS.md` / `SOUL.md` / `IDENTITY.md` / `TOOLS.md` bootstrap files, skills, and one quiet-on-clean 5-field cron routine (or on-demand default). Every newly forged template ships out-of-the-box with our funny unpainted rookie default avatar (**"Proto-Blob: Fresh Out of the Box"** — `avatars/blobster.svg` + `assets/icon.png`, the **only** art files upstream OpenClaw and ClawHub require!) and points you to **Blobster Sculptor** whenever you want custom art.
 2. **The Shell (`Blobster Sculptor / Molt`)** — Upgrades any agent from the stock `Proto-Blob` default to a custom role-specific `24×24`-legible layered SVG (`avatars/blobster.svg`, the single live avatar displayed inside OpenClaw chat today) + ClawHub catalog card `assets/icon.png` (`256×256` PNG `<= 512 KiB`). Alongside the required OpenClaw/ClawHub art, Molt can optionally compile our fun showcase extras (`avatars/hero-512.png` 3D soft-touch vinyl render, single-frame `avatars/sprite-2x2.png`, `avatars/cutout-256.png`, and `#FF00FF` chroma-keyed looping `blobster-idle.gif` & `blobster-wave.gif`) for **GitHub READMEs, websites, showcase cards, and external desktop-pet apps such as Codex Pets**, verified by an automated dark/light QA contact sheet.
 
 ---
@@ -138,13 +138,11 @@ blobster-factory/
 └── templates/
     ├── blobster-smith/               # C1 · Anvil Forgemaster (15-file standalone OpenClaw Agent Template)
     │   ├── package.json              # { name, version, license, openclaw: { template: "CLAW.md" } }
-    │   ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/lint_claw_template.py)
-    │   ├── profiles/openclaw.yml     # Bounded coding tool allowlist + fs.workspaceOnly + non-main sandbox
+    │   ├── CLAW.md                   # Single-file schemaVersion: 1 manifest: agent settings (bounded tool allowlist, fs.workspaceOnly, non-main sandbox), workspace files, automations
     │   └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
     └── blobster-sculptor/            # C5 · Blueprint Toymaker & Painter / Molt (15-file standalone OpenClaw Agent Template)
         ├── package.json
-        ├── CLAW.md                   # schemaVersion: 1 manifest (bundles scripts/compile_blobster_pack.py)
-        ├── profiles/openclaw.yml
+        ├── CLAW.md                   # Single-file schemaVersion: 1 manifest (bundles scripts/compile_blobster_pack.py)
         └── workspace/                # AGENTS.md, SOUL.md, IDENTITY.md, TOOLS.md, avatars/, scripts/, skills/
 ```
 
