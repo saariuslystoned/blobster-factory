@@ -14,7 +14,7 @@ Separates validation into two explicit layers:
      preservation inside block scalars, SemVer, 5-field Croner schedules, bounded tool allowlists).
    - Secret-pattern & machine-local private-path heuristics across all confined files.
    - Policy-phrase heuristics (`AGENTS.md` / `CLAW.md` draft-first outbound gate & untrusted input
-     boundary; quiet-on-clean & stale-data refusal on scheduled `cronJobs` and optional `HEARTBEAT.md`).
+     boundary; quiet-on-clean & stale-data refusal on scheduled `automations` and optional `HEARTBEAT.md`).
 """
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ ALLOWED_MANIFEST_KEYS = {
     "workspace",
     "packages",
     "mcpServers",
+    "automations",
     "cronJobs",
 }
 ALLOWED_WORKSPACE_KEYS = {"bootstrapFiles", "files"}
@@ -1274,6 +1275,19 @@ def lint_template_dir(
         diagnostics.append(_diag("invalid_schema_version", "CLAW.md.schemaVersion", "CLAW.md schemaVersion must be 1"))
         manifest = manifest if isinstance(manifest, dict) else {}
 
+    has_automations = "automations" in manifest
+    has_cron_jobs = "cronJobs" in manifest
+    if has_automations and has_cron_jobs:
+        diagnostics.append(
+            _diag(
+                "ambiguous_schedule_keys",
+                "CLAW.md",
+                "Declare schedules under automations or legacy cronJobs, not both.",
+            )
+        )
+    elif has_cron_jobs:
+        manifest["automations"] = manifest.pop("cronJobs")
+
     unknown_manifest_keys = sorted(set(manifest.keys()) - ALLOWED_MANIFEST_KEYS)
     for uk in unknown_manifest_keys:
         diagnostics.append(
@@ -1627,14 +1641,14 @@ def lint_template_dir(
                         )
                     )
 
-    # cronJobs schema, schedule range/timezone & quiet/honesty check
-    cron_jobs = manifest["cronJobs"] if "cronJobs" in manifest else []
+    # automations schema, schedule range/timezone & quiet/honesty check
+    cron_jobs = manifest["automations"] if "automations" in manifest else []
     if not isinstance(cron_jobs, list):
-        diagnostics.append(_diag("invalid_cron_jobs", "CLAW.md.cronJobs", "cronJobs must be a list"))
+        diagnostics.append(_diag("invalid_cron_jobs", "CLAW.md.automations", "automations must be a list"))
         cron_jobs = []
     seen_cron_ids: set[str] = set()
     for idx, job in enumerate(cron_jobs):
-        jpath = f"CLAW.md.cronJobs[{idx}]"
+        jpath = f"CLAW.md.automations[{idx}]"
         if not isinstance(job, dict):
             diagnostics.append(_diag("invalid_cron_job", jpath, "Each cronJob must be a mapping"))
             continue

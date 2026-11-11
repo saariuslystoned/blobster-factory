@@ -48,11 +48,7 @@ packages:
     source: "clawhub"
     ref: "@saariuslystoned/sculpt-blobster"
     version: "0.1.0"
-  - kind: "skill"
-    source: "clawhub"
-    ref: "@saariuslystoned/blobster-factory"
-    version: "0.1.0"
-cronJobs:
+automations:
   - id: "avatar-pack-gallery-check"
     name: "Daily Avatar Pack Budget, Spill & Clipping QA Audit"
     schedule:
@@ -61,8 +57,7 @@ cronJobs:
     session: "isolated"
     message: "Run python3 scripts/compile_blobster_pack.py qa --avatars-dir avatars (plus any templates/*/workspace/avatars/ folders or scripts/verify_blobster_factory.py when present in a workshop repository) to verify 256x256 viewBox='-12 -18 144 144' SVG compliance, non-empty synchronized foregrounds, zero border-clipped frames, <=1.5% #FF00FF fringe spill, and <1 MiB template / <2 MiB GIF budgets. Stay silent when clean and all packs pass; report explicit check or dependency failure rather than reusing stale data."
     delivery:
-      mode: "announce"
-      channel: "last"
+      mode: "none"
 ---
 
 # Blobster Sculptor (Molt) — Blueprint Toymaker & Painter

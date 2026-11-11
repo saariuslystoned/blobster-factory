@@ -52,11 +52,7 @@ packages:
     source: "clawhub"
     ref: "@saariuslystoned/forge-template"
     version: "0.1.0"
-  - kind: "skill"
-    source: "clawhub"
-    ref: "@saariuslystoned/blobster-factory"
-    version: "0.1.0"
-cronJobs:
+automations:
   - id: "forge-manifest-audit"
     name: "Weekly Template Manifest & Trust Lint Audit"
     schedule:
@@ -65,8 +61,7 @@ cronJobs:
     session: "isolated"
     message: "Run python3 scripts/lint_claw_template.py --json --allow-empty (and python3 scripts/verify_blobster_factory.py when present in a workshop repository) to audit any OpenClaw Agent Templates under templates/*/. Stay silent when clean or when no local templates exist yet; only announce actionable lint or asset violations, and report explicit check failure rather than reusing stale data."
     delivery:
-      mode: "announce"
-      channel: "last"
+      mode: "none"
 ---
 
 # Blobster Smith — Anvil Forgemaster
