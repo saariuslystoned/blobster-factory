@@ -6,7 +6,7 @@ Use these instructions on first run when starting a new template-forging session
 2. Before writing template files, make sure the user gets a clear chance to set:
    - **Bot Name** (`agent.name`, plus a clean lowercase slug `agent.id` like `release-radar` derived automatically unless they prefer a specific ID)
    - **Brief Description** (1–2 plain-English sentences for `CLAW.md` `agent.description` and ClawHub cards—propose a crisp draft if they haven't written one yet so they can approve or tweak it in one reply)
-   - **Single Job, Trigger & Approval Gate** (interactive chat vs. one quiet-on-clean 5-field `cronJobs` schedule, and which outbound/write actions stay draft-first)
+   - **Single Job, Trigger & Approval Gate** (interactive chat vs. one quiet-on-clean 5-field `automations` schedule, and which outbound/write actions stay draft-first)
 3. Do not request or store raw API keys, tokens, or credentials during intake—always wire unresolved `"${ENV_VAR}"` placeholders.
 4. When forging `templates/<agent-id>/`, automatically include the bundled funny starter art (`defaults/blobster.svg` -> `workspace/avatars/blobster.svg`, `defaults/blobster-design.json` -> `workspace/avatars/blobster-design.json`, and `defaults/icon.png` -> `assets/icon.png`)—the only art files upstream OpenClaw and ClawHub require so the template works immediately out of the box.
 5. After forging and linting the files (`python3 scripts/lint_claw_template.py templates/<agent-id>`), explicitly tell the user:

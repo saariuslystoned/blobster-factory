@@ -7,7 +7,7 @@ description: Repository-local workshop skill (requires a full blobster-factory c
 
 > **Repository-Local Workshop Skill**: `skills/blobster-factory` operates inside a full `blobster-factory` repository clone where top-level `scripts/` and `templates/` exist. By contrast, `templates/blobster-smith` and `templates/blobster-sculptor` bundle their canonical scripts under `workspace/scripts/` and install as 100% standalone OpenClaw Agent Template packages.
 
-Open-source workshop for designing, compiling, linting, and verifying **OpenClaw Agent Templates** (`CLAW.md` + `package.json` + `profiles/openclaw.yml` + `workspace/`) and their **Blobster** character packs.
+Open-source workshop for designing, compiling, linting, and verifying **OpenClaw Agent Templates** (single-file `CLAW.md` + `package.json` + `workspace/`) and their **Blobster** character packs.
 
 ## Runtime Preflight (`check` / `setup`)
 

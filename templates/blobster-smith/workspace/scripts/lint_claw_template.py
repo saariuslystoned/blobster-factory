@@ -8,13 +8,16 @@ Separates validation into two explicit layers:
      or fails closed when `--require-openclaw` is passed.
 2. Factory house rules (`factoryPolicyOk`):
    - Confined, symlink-free single regular-file inventory enforcing OpenClaw byte budgets
-     (`1 MiB` per managed file, `4 MiB` aggregate workspace sources, `256 KiB` package/profile caps)
+     (`1 MiB` per managed file, `4 MiB` aggregate workspace sources, `256 KiB` package.json cap)
      and zero unlisted/excluded files (`excludedPaths == []`).
-   - Strict block/flow YAML & manifest/profile subset checks (duplicate key rejection, literal `#`
-     preservation inside block scalars, SemVer, 5-field Croner schedules, bounded tool allowlists).
+   - Strict block/flow YAML & single-file `CLAW.md` manifest checks (duplicate key rejection, literal `#`
+     preservation inside block scalars, SemVer, 5-field Croner schedules, bounded `agent.tools.allow`).
+   - Rejects the retired layout (`profiles/`, `packages`, `cronJobs`, `metadata.openclaw.config`) the
+     same way upstream OpenClaw does: native settings live under `CLAW.md` `agent`, dependencies under
+     `skills` / `plugins`, scheduled work under `automations`.
    - Secret-pattern & machine-local private-path heuristics across all confined files.
    - Policy-phrase heuristics (`AGENTS.md` / `CLAW.md` draft-first outbound gate & untrusted input
-     boundary; quiet-on-clean & stale-data refusal on scheduled `cronJobs` and optional `HEARTBEAT.md`).
+     boundary; quiet-on-clean & stale-data refusal on scheduled `automations` and optional `HEARTBEAT.md`).
 """
 from __future__ import annotations
 
@@ -33,7 +36,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 MAX_PACKAGE_JSON_BYTES = 256 * 1024
 MAX_MANIFEST_BYTES = 1024 * 1024
-MAX_PROFILE_BYTES = 256 * 1024
 MAX_MANAGED_FILE_BYTES = 1024 * 1024
 MAX_MANAGED_WORKSPACE_BYTES = 4 * MAX_MANAGED_FILE_BYTES
 MAX_BOOTSTRAP_SEED_BYTES = 2 * 1024 * 1024
@@ -46,13 +48,35 @@ ALLOWED_MANIFEST_KEYS = {
     "categories",
     "metadata",
     "workspace",
-    "packages",
+    "skills",
+    "plugins",
     "mcpServers",
-    "cronJobs",
+    "automations",
 }
+# Retired by upstream OpenClaw (single-file CLAW.md format); no backward compatibility.
+RETIRED_MANIFEST_KEYS = ("packages", "profiles", "cronJobs")
+RETIRED_LAYOUT_MESSAGE = (
+    "Move native settings into CLAW.md agent and exact ClawHub references into skills/plugins. "
+    "Use automations for scheduled work; remove packages, profiles, cronJobs, and "
+    "metadata.openclaw.config; keep schemaVersion: 1."
+)
+ALLOWED_AGENT_KEYS = {
+    "id",
+    "name",
+    "description",
+    "identity",
+    "groupChat",
+    "sandbox",
+    "tools",
+    "memory",
+    "heartbeat",
+    "humanDelay",
+}
+HOST_CONTROLLED_AGENT_KEYS = ("model", "provider", "credentials", "delegates")
+ALLOWED_TOOLS_KEYS = {"profile", "allow", "alsoAllow", "deny", "fs"}
+TOOL_PROFILE_IDS = {"minimal", "coding", "messaging", "full"}
 ALLOWED_WORKSPACE_KEYS = {"bootstrapFiles", "files"}
-ALLOWED_PACKAGE_ENTRY_KEYS = {"kind", "source", "ref", "version"}
-ALLOWED_CRON_JOB_KEYS = {"id", "name", "schedule", "session", "message", "delivery"}
+ALLOWED_CRON_JOB_KEYS = {"id", "name", "enabled", "schedule", "session", "message", "delivery"}
 ALLOWED_STDIO_MCP_KEYS = {"command", "transport", "args", "env", "toolFilter", "timeout", "connectTimeout"}
 ALLOWED_REMOTE_MCP_KEYS = {"url", "transport", "auth", "toolFilter", "timeout", "connectTimeout"}
 PORTABLE_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -560,7 +584,7 @@ def _flow_bracket_balance(text: str) -> int:
 
 
 def parse_simple_yaml(text: str) -> Any:
-    """Parse the clean block/flow YAML subset used in CLAW.md and profiles/openclaw.yml."""
+    """Parse the clean block/flow YAML subset used in CLAW.md frontmatter."""
     raw_lines = text.removeprefix("\ufeff").splitlines()
 
     def inspect_code_line(raw: str) -> tuple[int, str, str] | None:
@@ -1274,7 +1298,10 @@ def lint_template_dir(
         diagnostics.append(_diag("invalid_schema_version", "CLAW.md.schemaVersion", "CLAW.md schemaVersion must be 1"))
         manifest = manifest if isinstance(manifest, dict) else {}
 
-    unknown_manifest_keys = sorted(set(manifest.keys()) - ALLOWED_MANIFEST_KEYS)
+    for rk in RETIRED_MANIFEST_KEYS:
+        if rk in manifest:
+            diagnostics.append(_diag("retired_template_configuration", f"CLAW.md.{rk}", RETIRED_LAYOUT_MESSAGE))
+    unknown_manifest_keys = sorted(set(manifest.keys()) - ALLOWED_MANIFEST_KEYS - set(RETIRED_MANIFEST_KEYS))
     for uk in unknown_manifest_keys:
         diagnostics.append(
             _diag("unknown_manifest_field", f"CLAW.md.{uk}", f"Unsupported CLAW.md frontmatter key {uk!r}")
@@ -1297,6 +1324,77 @@ def lint_template_dir(
                     "agent.name must be a non-empty string without leading or trailing whitespace",
                 )
             )
+        for hk in HOST_CONTROLLED_AGENT_KEYS:
+            if hk in agent_cfg:
+                diagnostics.append(
+                    _diag(
+                        "agent_host_controlled_field",
+                        f"CLAW.md.agent.{hk}",
+                        f"CLAW.md agent cannot set {hk} (controlled by host OpenClaw policy).",
+                    )
+                )
+        for uk in sorted(set(agent_cfg.keys()) - ALLOWED_AGENT_KEYS - set(HOST_CONTROLLED_AGENT_KEYS)):
+            diagnostics.append(
+                _diag("unknown_agent_field", f"CLAW.md.agent.{uk}", f"Unsupported CLAW.md agent key {uk!r}")
+            )
+        tools_cfg = agent_cfg.get("tools")
+        if not isinstance(tools_cfg, dict):
+            diagnostics.append(
+                _diag("missing_tools_policy", "CLAW.md.agent.tools", "Explicit agent.tools block required")
+            )
+        else:
+            for uk in sorted(set(tools_cfg.keys()) - ALLOWED_TOOLS_KEYS):
+                diagnostics.append(
+                    _diag("unknown_tools_field", f"CLAW.md.agent.tools.{uk}", f"Unsupported agent.tools key {uk!r}")
+                )
+            if "profile" in tools_cfg and tools_cfg.get("profile") not in TOOL_PROFILE_IDS:
+                diagnostics.append(
+                    _diag(
+                        "invalid_tool_profile",
+                        "CLAW.md.agent.tools.profile",
+                        f"agent.tools.profile must be one of {sorted(TOOL_PROFILE_IDS)}",
+                    )
+                )
+            allow_list = tools_cfg.get("allow")
+            if not isinstance(allow_list, list) or len(allow_list) == 0:
+                diagnostics.append(
+                    _diag(
+                        "unbounded_tool_allowlist",
+                        "CLAW.md.agent.tools.allow",
+                        "CLAW.md must declare a bounded, non-empty agent.tools.allow list.",
+                    )
+                )
+            elif any(
+                not isinstance(t, str)
+                or not t.strip()
+                or any(ch in t for ch in "*?[]{}")
+                or t.strip() in ("group:plugins", "bundle-mcp")
+                for t in allow_list
+            ):
+                diagnostics.append(
+                    _diag(
+                        "wildcard_tool_forbidden",
+                        "CLAW.md.agent.tools.allow",
+                        "Wildcard or unbounded ('*', '?', '[]', '{}', 'group:plugins', 'bundle-mcp') tool grants are forbidden in agent.tools.allow.",
+                    )
+                )
+            if "alsoAllow" in tools_cfg:
+                diagnostics.append(
+                    _diag(
+                        "unbounded_tool_allowlist",
+                        "CLAW.md.agent.tools.alsoAllow",
+                        "Factory templates use a bounded agent.tools.allow list, not alsoAllow.",
+                    )
+                )
+            fs_cfg = tools_cfg.get("fs")
+            if not isinstance(fs_cfg, dict) or fs_cfg.get("workspaceOnly") is not True:
+                diagnostics.append(
+                    _diag(
+                        "workspace_only_required",
+                        "CLAW.md.agent.tools.fs.workspaceOnly",
+                        "agent.tools.fs.workspaceOnly must be true.",
+                    )
+                )
 
     if "categories" in manifest:
         cats = manifest.get("categories")
@@ -1336,9 +1434,9 @@ def lint_template_dir(
         elif "openclaw.config" in metadata_cfg:
             diagnostics.append(
                 _diag(
-                    "deprecated_openclaw_profile_pointer",
+                    "retired_template_configuration",
                     "CLAW.md.metadata.openclaw.config",
-                    "Remove deprecated metadata.openclaw.config pointer; OpenClaw discovers profiles/openclaw.yml automatically.",
+                    RETIRED_LAYOUT_MESSAGE,
                 )
             )
 
@@ -1445,33 +1543,61 @@ def lint_template_dir(
             )
         )
 
-    packages_cfg = manifest["packages"] if "packages" in manifest else []
-    if not isinstance(packages_cfg, list):
-        diagnostics.append(_diag("invalid_packages", "CLAW.md.packages", "packages must be a list"))
-    else:
-        seen_pkg_keys: set[str] = set()
-        for idx, pentry in enumerate(packages_cfg):
-            ppath = f"CLAW.md.packages[{idx}]"
-            if not isinstance(pentry, dict) or set(pentry.keys()) - ALLOWED_PACKAGE_ENTRY_KEYS:
+    # skills / plugins: each entry is a bundled package-relative folder {path} or an exact
+    # ClawHub release {ref, version}; never both.
+    bundled_dirs: list[str] = []
+    for dep_kind in ("skills", "plugins"):
+        deps_cfg = manifest[dep_kind] if dep_kind in manifest else []
+        if not isinstance(deps_cfg, list):
+            diagnostics.append(_diag("invalid_dependencies", f"CLAW.md.{dep_kind}", f"{dep_kind} must be a list"))
+            continue
+        seen_refs: set[str] = set()
+        for idx, dentry in enumerate(deps_cfg):
+            dpath = f"CLAW.md.{dep_kind}[{idx}]"
+            if not isinstance(dentry, dict) or set(dentry.keys()) not in ({"path"}, {"ref", "version"}):
                 diagnostics.append(
-                    _diag("invalid_package_entry", ppath, "Each package dependency must map only {kind, source, ref, version}")
+                    _diag("invalid_dependency_entry", dpath, "Each entry must map only {path} or only {ref, version}")
                 )
                 continue
-            pkind = pentry.get("kind")
-            psource = pentry.get("source")
-            pref = pentry.get("ref")
-            pver = pentry.get("version")
-            if pkind not in ("skill", "plugin") or psource != "clawhub":
-                diagnostics.append(_diag("invalid_package_entry", ppath, "Package must use kind skill|plugin and source clawhub"))
-            if not isinstance(pref, str) or not PACKAGE_NAME_RE.match(pref):
-                diagnostics.append(_diag("invalid_package_ref", f"{ppath}.ref", f"Invalid ClawHub package ref: {pref!r}"))
-            if not isinstance(pver, str) or not SEMVER_RE.match(pver):
-                diagnostics.append(_diag("invalid_package_version", f"{ppath}.version", f"Version must be exact SemVer: {pver!r}"))
-            if isinstance(pkind, str) and isinstance(psource, str) and isinstance(pref, str):
-                pkey = f"{pkind}:{psource}:{pref.lower()}"
-                if pkey in seen_pkg_keys:
-                    diagnostics.append(_diag("duplicate_package_ref", ppath, f"Duplicate package dependency: {pref!r}"))
-                seen_pkg_keys.add(pkey)
+            if "path" in dentry:
+                bpath = dentry.get("path")
+                if not isinstance(bpath, str) or not _is_safe_rel_path(bpath):
+                    diagnostics.append(_diag("invalid_dependency_path", f"{dpath}.path", f"Unsafe path {bpath!r}"))
+                    continue
+                bkey = _portable_path_key(bpath)
+                if any(_conflicts_with_template_path({prev}, bkey) for prev in bundled_dirs):
+                    diagnostics.append(
+                        _diag("overlapping_bundled_dependency", f"{dpath}.path", "Bundled dependency directories must not overlap.")
+                    )
+                    continue
+                bundled_dirs.append(bkey)
+                bdir = root / bpath
+                if _has_symlink_component(root, bpath) or not bdir.is_dir():
+                    diagnostics.append(
+                        _diag("invalid_dependency_path", f"{dpath}.path", f"{bpath!r} must be a regular package folder")
+                    )
+                    continue
+                if dep_kind == "skills" and not (bdir / "SKILL.md").is_file():
+                    diagnostics.append(
+                        _diag("missing_bundled_skill", f"{dpath}.path", f"Bundled skill {bpath!r} needs a root SKILL.md")
+                    )
+                for fp in sorted(bdir.rglob("*")):
+                    rel = fp.relative_to(root).as_posix()
+                    if any(part.lower() in (".git", "node_modules") for part in fp.relative_to(bdir).parts):
+                        continue
+                    if fp.is_file() and not fp.is_symlink() and rel not in workspace_sources:
+                        workspace_sources.append(rel)
+            else:
+                dref = dentry.get("ref")
+                dver = dentry.get("version")
+                if not isinstance(dref, str) or not PACKAGE_NAME_RE.match(dref):
+                    diagnostics.append(_diag("invalid_package_ref", f"{dpath}.ref", f"Invalid ClawHub package ref: {dref!r}"))
+                elif dref.lower() in seen_refs:
+                    diagnostics.append(_diag("duplicate_package_ref", dpath, f"Duplicate {dep_kind} ref: {dref!r}"))
+                else:
+                    seen_refs.add(dref.lower())
+                if not isinstance(dver, str) or not SEMVER_RE.match(dver):
+                    diagnostics.append(_diag("invalid_package_version", f"{dpath}.version", f"Version must be exact SemVer: {dver!r}"))
 
     identity_cfg = agent_cfg.get("identity") if isinstance(agent_cfg, dict) else None
     if isinstance(identity_cfg, dict):
@@ -1627,34 +1753,36 @@ def lint_template_dir(
                         )
                     )
 
-    # cronJobs schema, schedule range/timezone & quiet/honesty check
-    cron_jobs = manifest["cronJobs"] if "cronJobs" in manifest else []
+    # automations schema, schedule range/timezone & quiet/honesty check
+    cron_jobs = manifest["automations"] if "automations" in manifest else []
     if not isinstance(cron_jobs, list):
-        diagnostics.append(_diag("invalid_cron_jobs", "CLAW.md.cronJobs", "cronJobs must be a list"))
+        diagnostics.append(_diag("invalid_cron_jobs", "CLAW.md.automations", "automations must be a list"))
         cron_jobs = []
     seen_cron_ids: set[str] = set()
     for idx, job in enumerate(cron_jobs):
-        jpath = f"CLAW.md.cronJobs[{idx}]"
+        jpath = f"CLAW.md.automations[{idx}]"
         if not isinstance(job, dict):
-            diagnostics.append(_diag("invalid_cron_job", jpath, "Each cronJob must be a mapping"))
+            diagnostics.append(_diag("invalid_cron_job", jpath, "Each automation must be a mapping"))
             continue
         for uk in sorted(set(job.keys()) - ALLOWED_CRON_JOB_KEYS):
-            diagnostics.append(_diag("unknown_cron_field", f"{jpath}.{uk}", f"Unsupported cronJob field {uk!r}"))
+            diagnostics.append(_diag("unknown_cron_field", f"{jpath}.{uk}", f"Unsupported automation field {uk!r}"))
         jid = job.get("id")
         if not isinstance(jid, str) or not AGENT_ID_RE.match(jid):
-            diagnostics.append(_diag("invalid_cron_id", f"{jpath}.id", f"Invalid cronJob id: {jid!r}"))
+            diagnostics.append(_diag("invalid_cron_id", f"{jpath}.id", f"Invalid automation id: {jid!r}"))
         elif jid in seen_cron_ids:
-            diagnostics.append(_diag("duplicate_cron_id", f"{jpath}.id", f"Duplicate cronJob id: {jid!r}"))
+            diagnostics.append(_diag("duplicate_cron_id", f"{jpath}.id", f"Duplicate automation id: {jid!r}"))
         else:
             seen_cron_ids.add(jid)
 
+        if "enabled" in job and not isinstance(job.get("enabled"), bool):
+            diagnostics.append(_diag("invalid_cron_enabled", f"{jpath}.enabled", "automation enabled must be true or false"))
         session_kind = job.get("session")
         if session_kind not in ("main", "isolated"):
             diagnostics.append(
                 _diag(
                     "invalid_cron_session",
                     f"{jpath}.session",
-                    f"cronJob session must be 'main' or 'isolated', got {session_kind!r}",
+                    f"automation session must be 'main' or 'isolated', got {session_kind!r}",
                 )
             )
 
@@ -1680,14 +1808,14 @@ def lint_template_dir(
                 )
         msg = job.get("message")
         if not isinstance(msg, str) or not msg.strip():
-            diagnostics.append(_diag("missing_cron_message", f"{jpath}.message", "cronJob message must be non-empty"))
+            diagnostics.append(_diag("missing_cron_message", f"{jpath}.message", "automation message must be non-empty"))
         else:
             if msg != msg.strip():
                 diagnostics.append(
                     _diag(
                         "invalid_cron_message_whitespace",
                         f"{jpath}.message",
-                        "cronJob message must not have leading or trailing whitespace (use '|-' or '>-' for multiline YAML scalars).",
+                        "automation message must not have leading or trailing whitespace (use '|-' or '>-' for multiline YAML scalars).",
                     )
                 )
             if strict_trust:
@@ -1696,7 +1824,7 @@ def lint_template_dir(
                         _diag(
                             "cron_missing_quiet_on_clean",
                             f"{jpath}.message",
-                            "Scheduled cronJob message must instruct the agent to stay quiet/silent when nothing actionable changed.",
+                            "Scheduled automation message must instruct the agent to stay quiet/silent when nothing actionable changed.",
                         )
                     )
                 if not STALE_REFUSAL_RE.search(msg):
@@ -1704,7 +1832,7 @@ def lint_template_dir(
                         _diag(
                             "cron_missing_stale_refusal",
                             f"{jpath}.message",
-                            "Scheduled cronJob message must instruct the agent to report failure explicitly instead of inventing or reusing stale data.",
+                            "Scheduled automation message must instruct the agent to report failure explicitly instead of inventing or reusing stale data.",
                         )
                     )
         delivery = job.get("delivery")
@@ -1726,88 +1854,17 @@ def lint_template_dir(
                     )
                 )
 
-    # 3. profiles/openclaw.yml, LICENSE, and BOOTSTRAP.md checks (all into the single bounded inventory)
-    has_profile = False
-    prof_entry = root / "profiles" / "openclaw.yml"
-    if _has_symlink_component(root, "profiles/openclaw.yml"):
-        rejected_paths.add("profiles/openclaw.yml")
+    # 3. Retired profiles/ directory, LICENSE, and BOOTSTRAP.md checks (all into the single bounded inventory)
+    prof_dir = root / "profiles"
+    if prof_dir.is_symlink() or prof_dir.exists():
         diagnostics.append(
-            _diag("symlink_forbidden", "profiles/openclaw.yml", "profiles/openclaw.yml must not be or traverse a symlink")
+            _diag(
+                "retired_template_configuration",
+                "profiles",
+                "Move supported settings from profiles into CLAW.md agent, and plugin references into plugins; "
+                "remove the profiles directory and keep schemaVersion: 1.",
+            )
         )
-    elif prof_entry.exists():
-        prof_bytes, prof_err, prof_msg = _read_bounded_regular_file(
-            root, "profiles/openclaw.yml", MAX_PROFILE_BYTES, reject_hardlinks=True
-        )
-        if prof_bytes is None:
-            rejected_paths.add("profiles/openclaw.yml")
-            code = "profile_too_large" if prof_err == "file_too_large" else (prof_err or "invalid_profile_yaml")
-            diagnostics.append(_diag(code, "profiles/openclaw.yml", prof_msg or "Invalid profiles/openclaw.yml"))
-        else:
-            has_profile = True
-            inventory_bytes["profiles/openclaw.yml"] = prof_bytes
-            try:
-                prof_txt = prof_bytes.decode("utf-8")
-                decoded_utf8_by_rel["profiles/openclaw.yml"] = prof_txt
-                prof = parse_simple_yaml(prof_txt)
-            except Exception as exc:
-                diagnostics.append(_diag("invalid_profile_yaml", "profiles/openclaw.yml", f"YAML parse error: {exc}"))
-                prof = {}
-            if not isinstance(prof, dict) or type(prof.get("schemaVersion")) is not int or prof.get("schemaVersion") != 1:
-                diagnostics.append(
-                    _diag("invalid_profile_schema", "profiles/openclaw.yml", "profiles/openclaw.yml schemaVersion must be 1")
-                )
-                prof = prof if isinstance(prof, dict) else {}
-            p_agent = prof.get("agent")
-            if not isinstance(p_agent, dict):
-                diagnostics.append(_diag("missing_profile_agent", "profiles/openclaw.yml.agent", "Missing agent block"))
-            else:
-                for forbidden_key in ("model", "provider", "credentials", "delegates"):
-                    if forbidden_key in p_agent:
-                        diagnostics.append(
-                            _diag(
-                                "profile_forbidden_field",
-                                f"profiles/openclaw.yml.agent.{forbidden_key}",
-                                f"profiles/openclaw.yml cannot set {forbidden_key} (controlled by host OpenClaw policy).",
-                            )
-                        )
-                tools_cfg = p_agent.get("tools")
-                if not isinstance(tools_cfg, dict):
-                    diagnostics.append(
-                        _diag("missing_tools_policy", "profiles/openclaw.yml.agent.tools", "Explicit tools block required")
-                    )
-                else:
-                    allow_list = tools_cfg.get("allow")
-                    if not isinstance(allow_list, list) or len(allow_list) == 0:
-                        diagnostics.append(
-                            _diag(
-                                "unbounded_tool_allowlist",
-                                "profiles/openclaw.yml.agent.tools.allow",
-                                "profiles/openclaw.yml must declare a bounded, non-empty agent.tools.allow list.",
-                            )
-                        )
-                    elif any(
-                        not isinstance(t, str)
-                        or not t.strip()
-                        or any(ch in t for ch in "*?[]{}")
-                        or t.strip() in ("group:plugins", "bundle-mcp")
-                        for t in allow_list
-                    ):
-                        diagnostics.append(
-                            _diag(
-                                "wildcard_tool_forbidden",
-                                "profiles/openclaw.yml.agent.tools.allow",
-                                "Wildcard or unbounded ('*', '?', '[]', '{}', 'group:plugins', 'bundle-mcp') tool grants are forbidden in agent.tools.allow.",
-                            )
-                        )
-                    fs_cfg = tools_cfg.get("fs")
-                    if not isinstance(fs_cfg, dict) or fs_cfg.get("workspaceOnly") is not True:
-                        diagnostics.append(
-                            _diag(
-                                "workspace_only_required",
-                                "profiles/openclaw.yml.agent.tools.fs.workspaceOnly",
-                                "agent.tools.fs.workspaceOnly must be true.",
-                            )
-                        )
 
     has_license = False
     lic_candidate = root / "LICENSE"
@@ -1857,8 +1914,6 @@ def lint_template_dir(
         selected_paths.append("LICENSE")
     if has_bootstrap_seed:
         selected_paths.append("BOOTSTRAP.md")
-    if has_profile:
-        selected_paths.append("profiles/openclaw.yml")
     selected_paths.extend(workspace_sources)
 
     portable_map: dict[str, str] = {}

@@ -9,6 +9,41 @@ agent:
     theme: "cyan"
     emoji: "🎨"
     avatar: "avatars/blobster.svg"
+  groupChat:
+    mentionPatterns:
+      - "@blobster-sculptor"
+      - "@sculptor"
+      - "@molt"
+  sandbox:
+    mode: "non-main"
+    scope: "session"
+    workspaceAccess: "rw"
+  tools:
+    profile: "coding"
+    allow:
+      - "ls"
+      - "read"
+      - "write"
+      - "edit"
+      - "apply_patch"
+      - "exec"
+      - "process"
+      - "view_image"
+      - "image_generate"
+      - "ask_user"
+      - "progress_card"
+      - "skills_search"
+      - "skills_read"
+      - "automations"
+    fs:
+      workspaceOnly: true
+  memory:
+    search:
+      enabled: true
+      rememberAcrossConversations: true
+      sources:
+        - "memory"
+        - "sessions"
 categories:
   - "product"
   - "engineering"
@@ -45,7 +80,7 @@ workspace:
       path: "scripts/compile_blobster_pack.py"
     - source: "workspace/skills/sculpt-blobster/SKILL.md"
       path: "skills/sculpt-blobster/SKILL.md"
-cronJobs:
+automations:
   - id: "avatar-pack-gallery-check"
     name: "Daily Avatar Pack Budget, Spill & Clipping QA Audit"
     schedule:
