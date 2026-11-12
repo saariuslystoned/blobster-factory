@@ -1,6 +1,6 @@
 ---
 name: sculpt-blobster
-description: Design, surgically refine, compile, and QA-verify an OpenClaw Blobster Tier 1 visual pack (24px layered SVG + 512x512 3D vinyl hero PNG + 2x2 #FF00FF chroma-key looping GIFs + automated dark/light QA contact sheet).
+description: Build the asset pack an OpenClaw Agent Template ships with (24px-legible layered SVG + ClawHub icon.png) and, optionally, matching showcase extras (3D vinyl hero, 2x2 #FF00FF chroma-key GIFs), each verified on a dark/light QA contact sheet.
 ---
 
 # Sculpt Blobster (`sculpt-blobster`)
@@ -8,6 +8,20 @@ description: Design, surgically refine, compile, and QA-verify an OpenClaw Blobs
 Use this skill to craft, refine, compile, and visually verify the character art for any **OpenClaw Agent Template**—including upgrading a template freshly forged by **`Blobster Smith` (`blobster-smith`)** from its default unpainted **"Proto-Blob (Fresh Out of the Box)"** starter avatar:
 - **Required by Upstream OpenClaw & ClawHub**: `avatars/blobster.svg` (`256×256` — the single live avatar rendered inside OpenClaw chat today) + `assets/icon.png` (`256×256` PNG `<= 512 KiB` for ClawHub catalog cards).
 - **Optional Fun Extras (for GitHub READMEs, Websites, Showcase Cards & Codex Pets)**: `hero-512.png`, `sprite-2x2.png`, `cutout-256.png`, and hydrated looping `blobster-idle.gif` / `blobster-wave.gif`.
+
+## Order of Work: The Template Pack First, Extras Second
+
+1. **Always ship the template pack first**: author `blobster-design.json`, compile `avatars/blobster.svg` + `assets/icon.png` with `compile_blobster_pack.py svg`, and pass the Read Check below. This needs no image model and is the deliverable every template gets.
+2. **Extras only after the pack is locked**: render the 3D hero / `2×2` sheet from the locked design, not the other way round, so every place the agent appears (sidebar, ClawHub card, README, website, desktop pet) shows the same character holding the same props in the same colours.
+3. If an extra disagrees with the locked SVG (a prop held differently, a different paint colour), fix the extra with a Surgical Edit; never change the SVG to match a render.
+
+## Read Check (Sidebar Size, Before Anything Ships)
+
+Look at the `24px` and `64px` tiles of the QA contact sheet and confirm all four:
+- [ ] **Name every prop from the 24px loupe alone.** If a prop is a blur, make it bolder or bigger, or drop it; one or two bold props beat four thin ones.
+- [ ] **Every prop is held the way it is really used**: handle or reins in the claw, working end pointing out (tongs grip the hot piece in their jaws, a brush points its tip away from the body, a hammer head sits above the claw).
+- [ ] **One paint / accent colour per character.** Every paint mark (brush tip, painted figurine, apron splash) and the matching 3D render use that same hex, and `blobster-design.json` `description` names it. A second paint colour anywhere reads as a mistake.
+- [ ] **The silhouette still reads on both the dark and the light panel.**
 
 ## Prompt Rubric: Fresh Generate vs. Surgical Edit
 
